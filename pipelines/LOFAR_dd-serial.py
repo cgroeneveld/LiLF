@@ -818,7 +818,7 @@ with w.if_todo('output_lres'):
         'Deconv_CycleFactor': 0,
         'Deconv_MaxMinorIter': 1000000,
         'Deconv_RMSFactor': 2.0,
-        'Deconv_FluxThreshold': 0.0,
+        'Deconv_FluxThreshold': 3.0, # 0.0 only with automask?
         'Deconv_Mode': 'WSCMS',
         'Deconv_MaxMajorIter': 10,
         'Deconv_PeakFactor': 0.3, #0.005
@@ -841,8 +841,8 @@ with w.if_todo('output_lres'):
         'Image_Cell': 15.,
         'Freq_NDegridBand': ch_out,
         'Freq_NBand': ch_out,
-        'Mask_Auto': 1,
-        'Mask_SigTh': 5.0,
+        # 'Mask_Auto': 1,
+        # 'Mask_SigTh': 5.0,
         'GAClean_MinSizeInit': 10, # check
         'GAClean_MaxMinorIterInitHMP': 100000, # check
         'Facets_DiamMax': 1.5,
@@ -858,5 +858,6 @@ with w.if_todo('output_lres'):
 
     lib_util.run_DDF(s, 'ddfacet-lowres-c' + str(cmaj) + '.log', **ddf_parms,
                      )
+    os.system('mv %s* ddcal/c%02i/images' % (imagename, cmaj))
 
 logger.info("Done.")

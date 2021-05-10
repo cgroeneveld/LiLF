@@ -70,7 +70,7 @@ with w.if_todo('predict'):
 with w.if_todo('cal_pa'):
     # Smooth data DATA -> SMOOTHED_DATA (BL-based smoothing)
     logger.info('BL-smooth...')
-    MSs.run('BLsmooth.py -r -c 1 -n 8 -i DATA -o SMOOTHED_DATA $pathMS', log='$nameMS_smooth1.log',
+    MSs.run(f'BLsmooth.py -r -c 1 -n 8 -f {1e-2 if MSs.isLBA else .2e-3} -i DATA -o SMOOTHED_DATA $pathMS', log='$nameMS_smooth1.log',
             commandType='python', maxThreads=8)
     
     # Solve cal_SB.MS:SMOOTHED_DATA (only solve)
@@ -89,7 +89,6 @@ with w.if_todo('cal_pa'):
 
 ########################################################
 # 2: find FR
-
 with w.if_todo('cal_fr'):
     # Beam correction CORRECTED_DATA -> CORRECTED_DATA
     logger.info('Beam correction...')
@@ -99,7 +98,7 @@ with w.if_todo('cal_fr'):
     # Smooth data CORRECTED_DATA -> CIRC_PHASEDIFF_DATA (BL-based smoothing)
     logger.info('BL-smooth...')
     MSs.addcol('CIRC_PHASEDIFF_DATA', 'CORRECTED_DATA', usedysco=False) # need this to make sure no dysco, if we have dyso we cannot set values to zero
-    MSs.run('BLsmooth.py -r -c 1 -n 8 -i CIRC_PHASEDIFF_DATA -o CIRC_PHASEDIFF_DATA $pathMS', log='$nameMS_smooth2.log',
+    MSs.run(f'BLsmooth.py -r -c 1 -n 8 -f {1e-2 if MSs.isLBA else .2e-3} -i CIRC_PHASEDIFF_DATA -o CIRC_PHASEDIFF_DATA $pathMS', log='$nameMS_smooth2.log',
             commandType='python', maxThreads=8)
 
     logger.info('Converting to circular...')
@@ -121,8 +120,8 @@ with w.if_todo('cal_fr'):
     # Solve cal_SB.MS:CIRC_PHASEDIFF_DATA against FR_MODEL_DATA (only solve)
     logger.info('Calibrating FR...')
     MSs.run('DP3 ' + parset_dir + '/DP3-soldd.parset msin=$pathMS msin.datacolumn=CIRC_PHASEDIFF_DATA \
-     msin.modelcolumn=FR_MODEL_DATA sol.antennaconstraint=[[CS001LBA,CS002LBA,CS003LBA,CS004LBA,CS005LBA,CS006LBA,CS007LBA]] \
-    sol.h5parm=$pathMS/fr.h5 sol.mode=phaseonly sol.solint=2 sol.nchan=2 sol.coreconstraint=1e3 sol.smoothnessconstraint=5e6', log='$nameMS_solFR.log', commandType="DP3")
+     msin.modelcolumn=FR_MODEL_DATA sol.h5parm=$pathMS/fr.h5 sol.mode=phaseonly sol.solint=2 sol.nchan=2 \
+     sol.coreconstraint=2e3 sol.smoothnessconstraint=5e6 sol.smoothnessreffrequency=54e6', log='$nameMS_solFR.log', commandType="DP3")
     lib_util.run_losoto(s, 'fr', [ms + '/fr.h5' for ms in MSs.getListStr()], [parset_dir + '/losoto-fr.parset'])
 
     # remove columns
@@ -166,7 +165,7 @@ with w.if_todo('cal_fr'):
 with w.if_todo('cal_bp'):
     # Smooth data CORRECTED_DATA -> SMOOTHED_DATA (BL-based smoothing)
     logger.info('BL-smooth...')
-    MSs.run('BLsmooth.py -r -c 1 -n 8 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS', log='$nameMS_smooth3.log',
+    MSs.run(f'BLsmooth.py -r -c 1 -n 8 -f {1e-2 if MSs.isLBA else .2e-3} -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS', log='$nameMS_smooth3.log',
             commandType ='python', maxThreads=8)
     
     # Solve cal_SB.MS:SMOOTHED_DATA (only solve)
@@ -218,7 +217,7 @@ with w.if_todo('apply_all'):
 with w.if_todo('cal_iono'):
     # Smooth data CORRECTED_DATA -> SMOOTHED_DATA (BL-based smoothing)
     logger.info('BL-smooth...')
-    MSs.run('BLsmooth.py -r -c 1 -n 8 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS', log='$nameMS_smooth4.log',
+    MSs.run(f'BLsmooth.py -r -c 1 -n 8 -f {1e-2 if MSs.isLBA else .2e-3} -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS', log='$nameMS_smooth4.log',
             commandType ='python', maxThreads=8)
     
     # Solve cal_SB.MS:SMOOTHED_DATA (only solve)
@@ -283,7 +282,8 @@ if imaging:
 
     logger.info('Cleaning normal...')
     imagename = 'img/cal'
-    lib_util.run_wsclean(s, 'wscleanA.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale='5arcsec',
+    scale = '5arcsec' if MSs.isLBA else '2arcsec'
+    lib_util.run_wsclean(s, 'wscleanA.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale=scale,
             weight='briggs 0.', niter=10000, no_update_model_required='', minuv_l=30, mgain=0.85,
             baseline_averaging='', parallel_deconvolution=512,
             auto_threshold=20, join_channels='', fit_spectral_pol=3, channels_out=12, deconvolution_channels=3)
@@ -293,7 +293,7 @@ if imaging:
     im.makeMask(threshpix=5)
 
     logger.info('Cleaning w/ mask...')
-    lib_util.run_wsclean(s, 'wscleanB.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale='5arcsec',
+    lib_util.run_wsclean(s, 'wscleanB.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale=scale,
             weight='briggs 0.', niter=100000, no_update_model_required='', minuv_l=30, mgain=0.85,
             baseline_averaging='', parallel_deconvolution=512,
             auto_threshold=1, fits_mask=im.maskname, join_channels='', fit_spectral_pol=3, channels_out=12, deconvolution_channels=3)

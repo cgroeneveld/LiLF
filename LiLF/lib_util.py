@@ -239,7 +239,7 @@ def lofar_nu2num(nu):
     # nyquist zone (1 for LBA, 2 for HBA low, 3 for HBA mid-high)
     if nu < 90:
         n = 1
-    elif nu < 170:
+    elif nu < 190:
         n = 2
     else:
         n = 3

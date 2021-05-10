@@ -51,6 +51,9 @@ class AllMSs(object):
         self.mssListStr = [ms.pathMS for ms in self.mssListObj]
         self.resolution = self.mssListObj[0].getResolution(check_flags=False)
 
+        self.isLBA = all(['LBA' in ms.getAntennaSet() for ms in self.mssListObj])
+        self.isHBA = all(['HBA' in ms.getAntennaSet() for ms in self.mssListObj])
+
 
     def getListObj(self):
         """

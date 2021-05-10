@@ -116,6 +116,7 @@ s.run(check=True)
 ######################################
 # Avg to 4 chan and 2 sec
 # Remove internationals
+# TODO: add option to backup data at full resolution
 if renameavg:
     logger.info('Renaming/averaging...')
 
@@ -132,6 +133,8 @@ if renameavg:
 
             if nchan == 1:
                 avg_factor_f = 1
+            elif nchan % 2 == 0 and minfreq > 100e6: # case HBA
+                avg_factor_f = int(nchan / 2)  # to 2 ch/SB
             elif nchan % 8 == 0 and minfreq < 40e6:
                 avg_factor_f = int(nchan / 8)  # to 8 ch/SB
             elif nchan % 4 == 0:
