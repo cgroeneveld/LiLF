@@ -754,7 +754,6 @@ for cmaj in range(maxIter):
                     'Beam_LOFARBeamMode':'A',
                     'Beam_NBand':1,
                     'Beam_DtBeamMin':5,
-                    'Output_Also':'onNeds',
                     'Image_Cell':3.,
                     'Freq_NDegridBand':ch_out,
                     'Freq_NBand':ch_out,
@@ -765,12 +764,14 @@ for cmaj in range(maxIter):
                     'Facets_DiamMax':1.5,
                     'Facets_DiamMin':0.1,
                     'Weight_ColName':'WEIGHT_SPECTRUM',
-                    'Output_Name':imagename,
+                    'RIME_ForwardMode':'BDA-degrid',
                     'DDESolutions_DDModeGrid':'AP',
                     'DDESolutions_DDModeDeGrid':'AP',
-                    'RIME_ForwardMode':'BDA-degrid',
+                    'DDESolutions_DDSols':interp_h5parm+':sol000/'+correct_for,
                     'Output_RestoringBeam':15.,
-                    'DDESolutions_DDSols':interp_h5parm+':sol000/'+correct_for
+                    'Output_StokesResidues': 'I,V',
+                    'Output_Also':'onNedsR',
+                    'Output_Name':imagename,
                     }
 
             if cmaj > 0:
@@ -802,7 +803,7 @@ for cmaj in range(maxIter):
     full_image = lib_img.Image('ddcal/c%02i/images/%s.app.restored.fits' % (cmaj, imagename.split('/')[-1]), userReg=userReg)
     min_cal_flux60 *= 0.8  # go a bit deeper
 
-### Additional images
+### Calibration finished - additional images with scientific value
 with w.if_todo('output_lres'):
     logger.info('Set SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA...')
     MSs.run('taql "update $pathMS set SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA"',
@@ -848,11 +849,11 @@ with w.if_todo('output_lres'):
         'Facets_DiamMax': 1.5,
         'Facets_DiamMin': 0.1,
         'Weight_ColName': 'WEIGHT_SPECTRUM',
+        'Output_RestoringBeam': 15.,
         'Output_Name': imagename,
         'DDESolutions_DDModeGrid': 'AP',
         'DDESolutions_DDModeDeGrid': 'AP',
         'RIME_ForwardMode': 'BDA-degrid',
-        'Output_RestoringBeam': 15.,
         'DDESolutions_DDSols': interp_h5parm + ':sol000/' + correct_for
     }
 
