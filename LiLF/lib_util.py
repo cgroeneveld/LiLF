@@ -85,6 +85,8 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_extract', 'maxniter', '10')
     add_default('LOFAR_extract', 'extractRegion', 'target.reg')
     add_default('LOFAR_extract', 'phSolMode', 'tecandphase') # tecandphase, phase
+    # virgo
+    add_default('LOFAR_virgo', 'init_model', os.path.dirname(__file__)+'/../models/demix_all.skydb')
 
     ### uGMRT ###
 

@@ -37,7 +37,7 @@ with w.if_todo('copy'):
 
     logger.info('Copy data...')
     for MS in MSs.getListObj():
-        #if min(MS.getFreqs()) > 30.e6:
+        # if min(MS.getFreqs()) > 30.e6:
         # overwrite=True to prevent updating the weights twice
         MS.move(MS.nameMS+'.MS', keepOrig=True, overwrite=True)
 ### DONE
@@ -84,7 +84,7 @@ with w.if_todo('apply'):
     elif MSs.isHBA:
         MSs.run('DP3 '+parset_dir+'/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA cor.steps=[amp,clock] \
                 cor.amp.parmdb='+h5_amp+' cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True\
-                cor.clock.parmdb='+h5_iono+' cor.clock.correction=clockMean000', log='$nameMS_cor2.log', commandType='DP3')
+                cor.clock.parmdb='+h5_iono+' cor.clock.correction=clockMed000', log='$nameMS_cor2.log', commandType='DP3')
 
     # Beam correction CORRECTED_DATA -> CORRECTED_DATA (polalign corrected, beam corrected+reweight)
     logger.info('Beam correction...')
@@ -129,7 +129,7 @@ MSs = lib_ms.AllMSs( glob.glob('mss*/*MS'), s )
 with w.if_todo('flag'):
 
     logger.info('Flagging...')
-    flag_strat = 'HBAdefaultwideband.lua' if MSs.isHBA else 'LBAdefaultwideband.lua'
+    flag_strat = '/HBAdefaultwideband.lua' if MSs.isHBA else '/LBAdefaultwideband.lua'
     MSs.run('DP3 '+parset_dir+'/DP3-flag.parset msin=$pathMS ant.baseline=\"' + bl2flag + '\" \
             aoflagger.strategy='+parset_dir+flag_strat,
             log='$nameMS_DP3_flag.log', commandType='DP3')

@@ -16,13 +16,13 @@ Circular = False
 [duplicateClock]
 operation = DUPLICATE
 soltab = sol000/clock000
-soltabOut = clockMean000
+soltabOut = clockMed000
 
-[clockMean]
+[clockMed]
 operation = SMOOTH
-soltab = sol000/clockMean000
+soltab = sol000/clockMed000
 axesToSmooth = [time]
-mode = mean
+mode = median
 
 [plotClock]
 operation = PLOT
@@ -33,14 +33,13 @@ prefix = plots/clock
 #minmax = [-2e-7,2e-7]
 plotFlag = False
 refAnt = 'CS001HBA0'
-#refAnt = 'CS002HBA0'
 
-[plotClockMean]
+[plotClockMed]
 operation = PLOT
-soltab = sol000/clockMean000
+soltab = sol000/clockMed000
 axesInPlot = [time]
 axisInTable = ant
-prefix = plots/clockMean
+prefix = plots/clockMed
 #minmax = [-2e-7,2e-7]
 plotFlag = False
 refAnt = 'CS001HBA0'
@@ -59,7 +58,7 @@ refAnt = 'CS001HBA0'
 [residuals]
 operation = RESIDUALS
 soltab = sol000/phase000
-soltabsToSub = [clockMean000]
+soltabsToSub = [clockMed000]
 
 [PlotPr1]
 operation = PLOT
@@ -67,7 +66,7 @@ soltab = sol000/phase000
 axesInPlot = [time,freq]
 axisInTable = ant
 plotFlag = True
-prefix = plots/phMeanClockSubtracted
+prefix = plots/phMedClockSubtracted
 refAnt = 'CS001HBA0'
 #refAnt = 'CS002HBA0'
 minmax = [-3.14,3.14]
