@@ -55,6 +55,7 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_preprocess', 'renameavg', 'True')
     add_default('LOFAR_preprocess', 'flag_elev', 'True')
     add_default('LOFAR_preprocess', 'keep_IS', 'False')
+    add_default('LOFAR_preprocess', 'backup_full_res', 'False')
     # demix
     add_default('LOFAR_demix', 'data_dir', './data-bkp/')
     add_default('LOFAR_demix', 'include_target', 'False')

@@ -116,7 +116,7 @@ with w.if_todo('init_model'):
             copy2(init_model, MS)
 
         # note: do not add MODEL_DATA or the beam is transported from DATA, while we want it without beam applied
-        logger.info('Add model to MODEL_DATA...')
+        logger.info('Predict (DP3: %s - %s))...' % (sourcedb_basename, target))
         MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.usebeammodel=false pre.sources={target} '
                 f'pre.sourcedb=$pathMS/{sourcedb_basename}', log='$nameMS_pre.log', commandType='DP3')
 

@@ -8,7 +8,7 @@ ant.type = preflagger
 ant.baseline =
 
 elev.type = preflagger
-elev.elevation = 0 .. 30 deg
+elev.elevation = 0 .. 25 deg
 
 aoflagger.strategy =
 aoflagger.memoryperc = 6
