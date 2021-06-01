@@ -62,7 +62,7 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_demix', 'demix_model', os.path.dirname(__file__)+'/../models/demix_all.skymodel')
     # cal
     add_default('LOFAR_cal', 'data_dir', './data-bkp/')
-    add_default('LOFAR_cal', 'skymodel', os.path.dirname(__file__)+'/../models/calib-simple.skydb')
+    add_default('LOFAR_cal', 'skymodel', '') # by default use calib-simple.skydb for LBA and calib-hba.skydb for HBA
     add_default('LOFAR_cal', 'imaging', 'False')
     # timesplit
     add_default('LOFAR_timesplit', 'data_dir', './data-bkp/')
