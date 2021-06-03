@@ -26,6 +26,12 @@ bl2flag = parset.get('flag','stations')
 #############################################################
 MSs = lib_ms.AllMSs( glob.glob(data_dir+'/*MS'), s, check_flags = False )
 
+if skymodel == '':  # default case
+    if MSs.isLBA:
+        skymodel = os.path.dirname(__file__) + '/../models/calib-simple.skydb'
+    elif MSs.isHBA:
+        skymodel = os.path.dirname(__file__) + '/../models/calib-hba.skydb'
+
 with w.if_todo('copy'):
     # copy data
     logger.info('Copy data...')
@@ -58,11 +64,6 @@ with w.if_todo('flag'):
 
 with w.if_todo('predict'):
     # predict to save time ms:MODEL_DATA
-    if skymodel == '': # default case
-        if MSs.isLBA:
-            skymodel = os.path.dirname(__file__)+'/../models/calib-simple.skydb'
-        elif MSs.isHBA:
-            skymodel = os.path.dirname(__file__)+'/../models/calib-hba.skydb'
 
     logger.info('Add model of %s from %s to MODEL_DATA...' % (calname, os.path.basename(skymodel)))
     MSs.run("DP3 " + parset_dir + "/DP3-predict.parset msin=$pathMS pre.sourcedb=$pathMS/" + os.path.basename(skymodel) + " pre.sources=" + calname, \
@@ -280,35 +281,40 @@ if imaging:
     logger.info("Imaging section:")
 
     # Correct all CORRECTED_DATA (PA, beam, FR, BP corrected) -> CORRECTED_DATA
-    logger.info('IONO correction...')
-    MSs.run("DP3 " + parset_dir + '/DP3-cor.parset msin=$pathMS cor.parmdb=cal-iono.h5 \
-        cor.correction=phaseOrig000', log='$nameMS_corIONO.log', commandType="DP3")
+    with w.if_todo('cor_iono'):
+        logger.info('IONO correction...')
+        MSs.run("DP3 " + parset_dir + '/DP3-cor.parset msin=$pathMS cor.parmdb=cal-iono.h5 \
+            cor.correction=phaseOrig000', log='$nameMS_corIONO.log', commandType="DP3")
 
-    lib_util.check_rm('img')
-    os.makedirs('img')
+    with w.if_todo('imaging'):
+        lib_util.check_rm('img')
+        os.makedirs('img')
 
 
-    logger.info('Cleaning normal...')
-    imagename = 'img/cal'
-    scale = MSs.getListObj()[0].getResolution()
-    imgsizepix = int(3600/scale) # 1 deg
-    lib_util.run_wsclean(s, 'wscleanA.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale=scale,
-            weight='briggs -0.3', niter=10000, no_update_model_required='', minuv_l=30, mgain=0.85,
-            baseline_averaging='', parallel_deconvolution=512, multiscale='',
-            auto_threshold=20, join_channels='', fit_spectral_pol=3, channels_out=12, deconvolution_channels=3)
+        imagename = 'img/cal'
+        scale = MSs.getListObj()[0].getResolution()/5
+        imgsizepix = int(1800/scale)
+        if imgsizepix > 1500: imgsizepix = 1500
 
-    # make mask
-    im = lib_img.Image(imagename+'-MFS-image.fits')
-    im.makeMask(threshpix=5)
+        logger.info('Cleaning normal (res:{:.02f}arcsec, size {}pix)...'.format(5*scale, imgsizepix))
+        lib_util.run_wsclean(s, 'wscleanA.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale='{}arcsec'.format(scale),
+                weight='briggs -0.3', niter=10000, no_update_model_required='', minuv_l=30, mgain=0.80,
+                baseline_averaging='', parallel_deconvolution=1024, #multiscale='',
+                auto_threshold=5, join_channels='', fit_spectral_pol=3, channels_out=12, deconvolution_channels=3)
 
-    logger.info('Cleaning w/ mask...')
-    lib_util.run_wsclean(s, 'wscleanB.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale=scale,
-            weight='briggs -0.3', niter=100000, no_update_model_required='', minuv_l=30, mgain=0.85,
-            baseline_averaging='', parallel_deconvolution=512, multiscale='',
-            auto_threshold=1, fits_mask=im.maskname, join_channels='', fit_spectral_pol=3, channels_out=12, deconvolution_channels=3)
-    os.system('cat logs/wscleanB.log | grep "background noise"')
+        # make mask
+        im = lib_img.Image(imagename+'-MFS-image.fits')
+        im.makeMask(threshpix=5)
 
-    # make new mask
-    im.makeMask(threshpix=7)
+        logger.info('Cleaning w/ mask...')
+        lib_util.run_wsclean(s, 'wscleanB.log', MSs.getStrWsclean(), name=imagename, size=imgsizepix, scale='{}arcsec'.format(scale),
+                weight='briggs -0.3', niter=100000, no_update_model_required='', minuv_l=30, mgain=0.80,
+                baseline_averaging='', parallel_deconvolution=1024, multiscale='', auto_mask=3, fits_mask=im.maskname,
+                auto_threshold=1,  join_channels='', fit_spectral_pol=3, channels_out=12, deconvolution_channels=3,
+                reuse_dirty=imagename, reuse_psf=imagename)
+        os.system('cat logs/wscleanB.log | grep "background noise"')
+
+        # make new mask
+        im.makeMask(threshpix=7)
 
 logger.info("Done.")
