@@ -732,74 +732,82 @@ for cmaj in range(maxIter):
             sys.exit('Not implemente further on...')
     
         else:
-
-            ddf_parms = {
-                    'Data_MS':MSs.getStrDDF(),
-                    'Data_ColName':'CORRECTED_DATA',
-                    'Data_Sort':1,
-                    'Output_Mode':'Clean',
-                    'Deconv_CycleFactor':0,
-                    'Deconv_MaxMinorIter':1000000,
-                    'Deconv_RMSFactor':2.0,
-                    'Deconv_FluxThreshold':0.0,
-                    'Deconv_Mode':'HMP',
-                    'HMP_AllowResidIncrease':1.,
-                    'Weight_Robust':-0.5,
-                    'Image_NPix':imgsizepix,
-                    'CF_wmax':50000,
-                    'CF_Nw':100,
-                    'Beam_CenterNorm':1,
-                    'Beam_Smooth':1,
-                    'Beam_Model':'LOFAR',
-                    'Beam_LOFARBeamMode':'A',
-                    'Beam_NBand':1,
-                    'Beam_DtBeamMin':5,
-                    'Image_Cell':3.,
-                    'Freq_NDegridBand':ch_out,
-                    'Freq_NBand':ch_out,
-                    'Mask_Auto':1,
-                    'Mask_SigTh':5.0,
-                    'GAClean_MinSizeInit':10,
-                    'GAClean_MaxMinorIterInitHMP':100000,
-                    'Facets_DiamMax':1.5,
-                    'Facets_DiamMin':0.1,
-                    'Weight_ColName':'WEIGHT_SPECTRUM',
-                    'RIME_ForwardMode':'BDA-degrid',
-                    'DDESolutions_DDModeGrid':'AP',
-                    'DDESolutions_DDModeDeGrid':'AP',
-                    'DDESolutions_DDSols':interp_h5parm+':sol000/'+correct_for,
-                    'Output_RestoringBeam':15.,
-                    'Output_Also':'onNedsR',
-                    'Output_Name':imagename,
-                    }
-
+            # common params for clean and predict
+            ddf_parms_wide = {
+                'Data_MS':MSs.getStrDDF(),
+                'Data_Sort':1,
+                'Deconv_Mode': 'HMP',
+                'Weight_Robust':-0.5,
+                'Image_NPix':imgsizepix,
+                'CF_wmax':50000,
+                'CF_Nw':100,
+                'Beam_CenterNorm':1,
+                'Beam_Smooth':1,
+                'Beam_Model':'LOFAR',
+                'Beam_LOFARBeamMode':'A',
+                'Beam_NBand':1,
+                'Beam_DtBeamMin':5,
+                'Image_Cell':3.,
+                'Freq_NDegridBand':ch_out,
+                'Freq_NBand':ch_out,
+                'Facets_DiamMax':1.5,
+                'Facets_DiamMin':0.1,
+                'DDESolutions_DDSols':interp_h5parm+':sol000/'+correct_for,
+                }
+            # additional params for predict
+            ddf_parms_clean = {
+                'Data_ColName': 'CORRECTED_DATA',
+                'Output_Mode': 'Clean',
+                'Deconv_CycleFactor': 0,
+                'Deconv_MaxMinorIter': 1000000,
+                'Deconv_RMSFactor': 2.0,
+                'Deconv_FluxThreshold': 0.0,
+                'HMP_AllowResidIncrease': 1.,
+                'GAClean_MaxMinorIterInitHMP': 100000,
+                'Mask_Auto': 1,
+                'Mask_SigTh': 5.0,
+                'Output_Also': 'onNedsR',
+                'Output_RestoringBeam': 15.,
+                'Output_Name': imagename,
+                }
 
             logger.info('Cleaning...')
-            lib_util.run_DDF(s, 'ddfacet-c'+str(cmaj)+'.log', **ddf_parms,
-                    Deconv_MaxMajorIter=1,
-                    Deconv_PeakFactor=0.02,
-                    Cache_Reset=1
-                    )
+            # lib_util.run_DDF(s, 'ddfacet-c'+str(cmaj)+'.log', **{ddf_parms_wide, **ddf_parms_clean},
+            #         Deconv_MaxMajorIter=1,
+            #         Deconv_PeakFactor=0.02,
+            #         Cache_Reset=1
+            #         )
 
             # make mask
             im = lib_img.Image(imagename+'.app.restored.fits', userReg=userReg)
-            im.makeMask(threshpix=4, rmsbox=(150, 15), atrous_do=True)
+            # im.makeMask(threshpix=4, rmsbox=(150, 15), atrous_do=True)
 
-            if cmaj > 0: # additional output for final DDF call
-                ddf_parms['Output_Cubes'] = 'iI'
-                ddf_parms['Predict_ColName'] = 'MODEL_DATA' # to subtract model
+            # if cmaj > 0: # additional output for final DDF call
+            #     ddf_parms['Output_Cubes'] = 'iI'
+            #     ddf_parms['Predict_ColName'] = 'MODEL_DATA' # to subtract model
                 # ddf_parms['Output_StokesResidues'] = 'I,V' # this could be used to get stokes V residual
 
-            logger.info('Cleaning (with mask)...')
-            lib_util.run_DDF(s, 'ddfacetM-c'+str(cmaj)+'.log', **ddf_parms,
-                    Deconv_MaxMajorIter=10,
-                    Deconv_PeakFactor=0.005,
-                    Mask_External=im.maskname,
-                    Cache_Reset=0
-                    )
+            # logger.info('Cleaning (with mask)...')
+            # lib_util.run_DDF(s, 'ddfacetM-c'+str(cmaj)+'.log', **{ddf_parms_wide, **ddf_parms_clean},
+            #         Deconv_MaxMajorIter=10,
+            #         Deconv_PeakFactor=0.005,
+            #         Mask_External=im.maskname,
+            #         Cache_Reset=0
+            #         )
+
+
+            if cmaj > 0: # predict-corrupt full model for subtracted output image
+                logger.info('Predict DD-corrupted...')
+                lib_util.run_DDF(s, 'ddfacet-pre-c' + str(cmaj) + '.log',
+                                 Mask_External=im.maskname,
+                                 Cache_Reset=0,
+                                 Output_Mode='Predict',
+                                 Predict_InitDicoModel='ddcal/c%02i/images/wideDD-c%02i.DicoModel' % (cmaj, cmaj),
+                                 Predict_ColName='MODEL_DATA',
+                                 **ddf_parms_wide
+                                 )
 
             os.system('mv %s* ddcal/c%02i/images' % (imagename, cmaj))
-
         ### DONE
 
     full_image = lib_img.Image('ddcal/c%02i/images/%s.app.restored.fits' % (cmaj, imagename.split('/')[-1]), userReg=userReg)
@@ -808,99 +816,89 @@ for cmaj in range(maxIter):
 ##############################################################################################################
 ### Calibration finished - additional images with scientific value
 
-with w.if_todo('output_stokesV'):
-    imagenameV = 'img/wideDD-V-c%02i' % (cmaj)
-
-    logger.info('Cleaning Stokes V...')
-    lib_util.run_DDF(s, 'ddfacet-v-c' + str(cmaj) + '.log',
-                     Data_MS=MSs.getStrDDF(),
-                     Data_ColName='CORRECTED_DATA',
-                     Data_Sort=1,
-                     Deconv_Mode='SSD',
-                     SSDClean_BICFactor=0,
-                     GAClean_AllowNegativeInitHMP=1,
-                     Output_Mode='Dirty',
-                     Weight_Robust=-0.5,
-                     Image_NPix=imgsizepix,
-                     CF_wmax=50000,
-                     CF_Nw=100,
-                     Beam_CenterNorm=1,
-                     Beam_Smooth=1,
-                     Beam_Model='LOFAR',
-                     Beam_LOFARBeamMode='A',
-                     Beam_NBand=1,
-                     Beam_DtBeamMin=5,
-                     Image_Cell=3.,
-                     Freq_NDegridBand=ch_out,
-                     Freq_NBand=ch_out,
-                     Facets_DiamMax=1.5,
-                     Facets_DiamMin=0.1,
-                     Weight_ColName='WEIGHT_SPECTRUM',
-                     RIME_ForwardMode='BDA-degrid',
-                     DDESolutions_DDModeGrid='AP',
-                     DDESolutions_DDModeDeGrid='AP',
-                     DDESolutions_DDSols=interp_h5parm + ':sol000/' + correct_for,
-                     Output_RestoringBeam=15.,  # what does this do?
-                     Output_Also='DsR',
-                     Output_Name=imagenameV,
-                     RIME_PolMode='IV',
-                     Cache_Reset=1
-                     )
-    os.system('mv %s* ddcal/c%02i/images' % (imagenameV, cmaj))
-
 with w.if_todo('output_lres'):
-
+    # WSCMS no automask possible (but scale dependent mask always enabled?)
     logger.info('Set SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA...')
     MSs.run('taql "update $pathMS set SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA"',
             log='$nameMS_taql.log', commandType='general')
     imagenameL = 'img/wideDD-lres-c%02i' % (cmaj)
     logger.info('Clean lowres subtracted image...')
-    ddf_parms_lres = {
-        'Data_MS': MSs.getStrDDF(),
-        'Data_ColName': 'SUBTRACTED_DATA',
-        'Data_Sort': 1,
-        'Output_Mode': 'Clean',
-        'Deconv_CycleFactor': 0,
-        'Deconv_MaxMinorIter': 1000000,
-        'Deconv_RMSFactor': 2.0,
-        'Deconv_FluxThreshold': 2.0, # 0.0 only with automask?
-        'Deconv_Mode': 'WSCMS',
-        'Deconv_MaxMajorIter': 2,
-        'Deconv_PeakFactor': 0.3, #0.005
-        'Cache_Reset': 0,
-        # 'WSCMS_NumFreqBasisFuncs': ,
-        'WSCMS_CacheSize':3,  # default
-        'Weight_EnableSigmoidTaper': 1,
-        'Weight_SigmoidTaperOuterCutoff': 3600, # ~60arcsec?
-        'Weight_Robust': 0.3,
-        'Image_NPix': int(1.7 * MSs.getListObj()[0].getFWHM(freq='mid') * 3600 / 15.), # needs to be tuned
-        'CF_wmax': 50000,
-        'CF_Nw': 100,
-        'Beam_CenterNorm': 1,
-        'Beam_Smooth': 1,
-        'Beam_Model': 'LOFAR',
-        'Beam_LOFARBeamMode': 'A',
-        'Beam_NBand': 1,
-        'Beam_DtBeamMin': 5,
-        'Output_Also': 'd',
-        'Image_Cell': 15.,
-        'Freq_NDegridBand': ch_out,
-        'Freq_NBand': ch_out,
-        'GAClean_MinSizeInit': 10, # check
-        'GAClean_MaxMinorIterInitHMP': 100000, # check
-        'Facets_DiamMax': 1.5,
-        'Facets_DiamMin': 0.1,
-        'Weight_ColName': 'WEIGHT_SPECTRUM',
-        'Output_RestoringBeam': 60.,
-        'Output_Name': imagenameL,
-        'DDESolutions_DDModeGrid': 'AP',
-        'DDESolutions_DDModeDeGrid': 'AP',
-        'RIME_ForwardMode': 'BDA-degrid',
-        'DDESolutions_DDSols': interp_h5parm + ':sol000/' + correct_for
-    }
-
-    lib_util.run_DDF(s, 'ddfacet-lowres-c' + str(cmaj) + '.log', **ddf_parms_lres,
-                     )
+    lib_util.run_DDF(s, 'ddfacet-lowres-c' + str(cmaj) + '.log',
+        Data_MS = MSs.getStrDDF(),
+        Data_ColName = 'SUBTRACTED_DATA',
+        Data_Sort = 1,
+        Output_Mode = 'Clean',
+        Deconv_CycleFactor = 0,
+        Deconv_MaxMinorIter = 1000000,
+        Deconv_RMSFactor = 1.0,
+        Deconv_FluxThreshold = 0.0,
+        # Deconv_Mode = 'SSD',
+        Deconv_Mode = 'WSCMS',
+        Deconv_MaxMajorIter = 3,
+        Deconv_PeakFactor = 0.01,
+        Cache_Reset = 1,
+        Weight_EnableSigmoidTaper = 1,
+        Weight_SigmoidTaperOuterCutoff = 3600, # ~60arcsec
+        Weight_Robust = 0.3,
+        Image_NPix = int(1.7 * MSs.getListObj()[0].getFWHM(freq='mid') * 3600 / 12.),
+        CF_wmax = 50000,
+        CF_Nw = 100,
+        # Mask_Auto = 1,
+        # Mask_SigTh = 3.0,
+        Beam_CenterNorm = 1,
+        Beam_Smooth = 1,
+        Beam_Model = 'LOFAR',
+        Beam_LOFARBeamMode = 'A',
+        Beam_NBand = 1,
+        Beam_DtBeamMin = 5,
+        Output_Also = 'drmciPIRD',
+        Image_Cell = 12.,
+        Freq_NDegridBand = ch_out,
+        Freq_NBand = ch_out,
+        Facets_DiamMax = 1.5,
+        Facets_DiamMin = 0.1,
+        Output_RestoringBeam = 60.,
+        Output_Name = imagenameL,
+        DDESolutions_DDSols = interp_h5parm + ':sol000/' + correct_for)
     os.system('mv %s* ddcal/c%02i/images' % (imagenameL, cmaj))
+### DONE
 
+with w.if_todo('output_stokesV'):
+    imagenameV = 'img/wideDD-V-c%02i' % (cmaj)
+
+    logger.info('Cleaning Stokes V...')
+    # use the last mask from the widefield image
+    inmask = sorted(glob.glob('ddcal/c%02i/images/wideDD-c%02i.mask*.fits' % (cmaj, cmaj)))[-1]
+    lib_util.run_DDF(s, 'ddfacet-v-c' + str(cmaj) + '.log',
+         Data_MS=MSs.getStrDDF(),
+         Data_ColName='CORRECTED_DATA',
+         Data_Sort=1,
+         Mask_External=inmask,
+         Deconv_Mode='SSD',
+         GAClean_AllowNegativeInitHMP=1,
+         Output_Mode='Dirty',
+         Weight_Robust=-0.5,
+         Image_NPix=imgsizepix,
+         CF_wmax=50000,
+         CF_Nw=100,
+         Beam_CenterNorm=1,
+         Beam_Smooth=1,
+         Beam_Model='LOFAR',
+         Beam_LOFARBeamMode='A',
+         Beam_NBand=1,
+         Beam_DtBeamMin=5,
+         Image_Cell=3.,
+         Freq_NDegridBand=ch_out,
+         Freq_NBand=ch_out,
+         Facets_DiamMax=1.5,
+         Facets_DiamMin=0.1,
+         DDESolutions_DDSols=interp_h5parm + ':sol000/' + correct_for,
+         Output_RestoringBeam=15.,
+         Output_Also='DdsRS',
+         Output_Name=imagenameV,
+         RIME_PolMode='IV',
+         Cache_Reset=1
+         )
+    os.system('mv %s* ddcal/c%02i/images' % (imagenameV, cmaj))
+### DONE
 logger.info("Done.")
