@@ -172,6 +172,7 @@ with w.if_todo('cor_fr'):
             log='$nameMS_smooth.log', commandType='python', maxThreads=8)
 ### DONE
 # Self-cal cycle
+field_subtracted = False
 for c in range(100):
     # Solve cal_SB.MS: FR_SMOOTHED_DATA (only solve)
     with w.if_todo('solve_iono_c%02i' % c):
@@ -195,7 +196,7 @@ for c in range(100):
         ### DONE
 
 
-    if 0 < c < 5 :
+    if 0 < c < 4 :
         # Solve cal_SB.MS: CORRECTED_DATA --smooth--> SMOOTHED_DATA --solve-->
         with w.if_todo('solve_gain_c%02i' % c):
             logger.info('BL-smooth...')
@@ -225,14 +226,15 @@ for c in range(100):
                     log=f'$nameMS_cor_gain-c{c:02}.log',
                     commandType='DP3')
             ### DONE
-    elif c >= 5:
+    elif c >= 4:
         with w.if_todo('solve_fulljones%02i' % c):
             logger.info('BL-smooth...')
             MSs.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
                     log='$nameMS_smooth.log', commandType='python', maxThreads=8)
             logger.info('Solving full-Jones...')
+            # solint from 180 to 60, chan from 4 to 1, smoothness from 3 to 2
             MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                    f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.smoothnessconstraint=3e6 sol.nchan=4 sol.solint={180//t_int} '
+                    f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.smoothnessconstraint=2e6 sol.nchan=1 sol.solint={60//t_int} '
                     f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
                     commandType="DP3")
 
@@ -266,7 +268,9 @@ for c in range(100):
             'minuv_l': uvlambdamin,
             'multiscale': '',
             'name': imagename,
-            'update_model_required': ''
+            'no_update_model_required': '',
+            'do_predict': True,
+            'baseline_averaging': 10
             }
 
         if not os.path.exists(basemask) or not os.path.exists(basemaskC):
@@ -277,42 +281,77 @@ for c in range(100):
             # create basemask
             copy2(f'{parset_dir}/masks/VirAhbaEllipse.reg', f'{baseregion}')
             copy2(f'{imagename}-image.fits', f'{basemask}')
-            copy2(f'{parset_dir}/masks/VirAChba.reg', f'{baseregionC}')
-            move(f'{imagename}-image.fits', f'{basemaskC}')
             lib_img.blank_image_reg(basemask, baseregion, inverse=True, blankval=0.)
             lib_img.blank_image_reg(basemask, baseregion, inverse=False, blankval=1.)
-            lib_img.blank_image_reg(basemaskC, baseregionC, inverse=True, blankval=0.)
-            lib_img.blank_image_reg(basemaskC, baseregionC, inverse=False, blankval=1.)
             if userReg != '':
                 lib_img.blank_image_reg(basemask, userReg, inverse=True, blankval=1.)
-                lib_img.blank_image_reg(basemaskC, userReg, inverse=True, blankval=1.)
-        # # clean compact cocoon
-        # logger.info('Cleaning A...')
-        # lib_util.run_wsclean(s, 'wscleanA-c' + str(c) + '.log', MSs.getStrWsclean(), niter=2000, nmiter=4, mgain=0.6, gain=0.08, multiscale_gain=0.12,
-        #                      auto_threshold=0.3, multiscale_scales='0,20,40', fits_mask=basemaskC,
-        #                      **wsclean_params)
-        # os.system(f'cat logs/wscleanA-c{c}.log | grep "background noise"')
-        # copy2(f'{imagename}-MFS-image.fits', 'img/img-cocoon-MFS-image.fits')
-        # copy2(f'{imagename}-MFS-residual.fits', 'img/img-cocoon-MFS-residual.fits')
-        # copy2(f'{imagename}-MFS-model.fits', 'img/img-cocoon-MFS-model.fits')
-        #     # clean extended
-        logger.info('Cleaning B...')
-        lib_util.run_wsclean(s, f'wscleanB-c{c}.log', MSs.getStrWsclean(), niter=1500000,
+
+        logger.info('Cleaning...')
+        lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1500000,
                              fits_mask=basemask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.6, gain=0.08, multiscale_gain=0.12,
                              auto_threshold=1.2, auto_mask=3.0, **wsclean_params)
-        # reuse_dirty = imagename, reuse_psf = imagename, cont=True
         os.system(f'cat logs/wscleanB-c{c}.log | grep "background noise"')
 
-    if c >= 5:
+    widefield_model = False
+    if c >= 5 and not field_subtracted:
         with w.if_todo('imaging_wide_c%02i' % c):
             logger.info('SET SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA')
             MSs.addcol('SUBTRACTED_DATA', 'CORRECTED_DATA')
-            MSs.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA=CORRECTED_DATA-MODEL_DATA"', log='$nameMS_taql_subtract.log', commandType='general')
+            MSs.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = CORRECTED_DATA-MODEL_DATA"', log='$nameMS_taql_subtract.log', commandType='general')
+
             logger.info('Cleaning Virgo A subtracted wide-field image...')
             lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', data_column='SUBTRACTED_DATA',
-                                 name=imagename+'wide-', parallel_deconvolution=2048, scale='2.0arcsec', size=7200, niter=500000,
+                                 name=imagename+'-wide', parallel_deconvolution=1024, scale='2.0arcsec', size=7200, niter=500000,
+                                 join_channels='', channels_out=6, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
+                                 mgain=0.85, auto_threshold=1.0, auto_mask=3.0, baseline_averaging='', no_update_model_required='', do_predict=True,
+                                 fits_mask=parset_dir+'/masks/FieldMask.fits')
+            widefield_model = True
+            os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
+
+            logger.info('Cleaning Virgo A subtracted low-res wide-field image...')
+            lib_util.run_wsclean(s, f'wsclean-wide-lr-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', taper_gaussian='30arcsec', data_column='SUBTRACTED_DATA',
+                                 name=imagename+'-wide-lr', parallel_deconvolution=2048, scale='6.0arcsec', size=3000, niter=500000,
                                  join_channels='', channels_out=6, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
                                  mgain=0.85, auto_threshold=1.0, auto_mask=3.0, baseline_averaging='', no_update_model_required='')
             os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
 
+        with w.if_todo('subtract_wide_c%02i' % c):
+            if not widefield_model:
+                logger.info('Predict rest-field...')
+                n = len(glob.glob('model-field/img-[0-9]*-model.fits'))
+                logger.info('Predict (wsclean: %s - chan: %i)...' % ('model-field', n))
+                s.add('wsclean -predict -name model-field/img-wide -j ' + str(s.max_processors) + ' -channels-out ' + str(
+                    n) + ' ' + MSs.getStrWsclean(), \
+                      log='wscleanPRE-field.log', commandType='wsclean', processors='max')
+                s.run(check=True)
+
+            logger.info('TEST EMPTY')
+            logger.info('Set SUBTRACTED_DATA = SUBTRACTED_DATA - MODEL_DATA')
+            MSs.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = SUBTRACTED_DATA-MODEL_DATA"', log='$nameMS_taql_subtract_empty.log',
+                    commandType='general')
+            lib_util.run_wsclean(s, f'wsclean-empty-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', data_column='SUBTRACTED_DATA',
+                                 name=imagename+'-empty', scale='2.0arcsec', size=7200, minuv_l=uvlambdamin, no_update_model_required='')
+
+            logger.info('Corrupt widefield MODEL_DATA...')
+            logger.info('Scalarphase corruption (MODEL_DATA)...')
+            MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=MODEL_DATA msout.datacolumn=MODEL_DATA '
+                    f'cor.updateweights=False cor.parmdb=self/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000 '
+                    f'invert=False', log=f'$nameMS_corrupt_iono-c{c:02}.log', commandType='DP3')
+            logger.info('Full-Jones corruption (MODEL_DATA)...')
+            MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=MODEL_DATA msout.datacolumn=MODEL_DATA '
+                    f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
+                    f'cor.soltab=\[amplitude000,phase000\] invert=False', log=f'$nameMS_corrupt_gain-c{c:02}.log', commandType='DP3')
+
+            logger.info('Set FR_CORRECTED_DATA = FR_CORRECTED_DATA - MODEL_DATA')
+            MSs.run('taql "UPDATE $pathMS SET FR_CORRECTED_DATA = FR_CORRECTED_DATA-MODEL_DATA"', log='$nameMS_taql_subtract.log',
+                    commandType='general')
+
+            logger.info('BL-smooth...')
+            MSs.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i FR_CORRECTED_DATA -o FR_SMOOTHED_DATA $pathMS',
+                    log='$nameMS_smooth.log', commandType='python', maxThreads=8)
+
+            logger.info('Get back Virgo A MODEL_DATA...')
+            s.add(f'wsclean -predict -name {imagename} -j {s.max_processors} -channels-out {wsclean_params["channels_out"]} {MSs.getStrWsclean()}',
+                  log='wscleanPRE-field.log', commandType='wsclean', processors='max')
+            s.run(check=True)
 logger.info("Done.")
