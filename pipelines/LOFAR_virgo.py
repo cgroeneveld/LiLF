@@ -295,25 +295,25 @@ for c in range(100):
     widefield_model = False
     if c >= 5 and not field_subtracted:
         with w.if_todo('imaging_wide_c%02i' % c):
-            logger.info('SET SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA')
-            MSs.addcol('SUBTRACTED_DATA', 'CORRECTED_DATA')
-            MSs.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = CORRECTED_DATA-MODEL_DATA"', log='$nameMS_taql_subtract.log', commandType='general')
+            # logger.info('SET SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA')
+            # MSs.addcol('SUBTRACTED_DATA', 'CORRECTED_DATA')
+            # MSs.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = CORRECTED_DATA-MODEL_DATA"', log='$nameMS_taql_subtract.log', commandType='general')
 
             logger.info('Cleaning Virgo A subtracted wide-field image...')
             lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', data_column='SUBTRACTED_DATA',
                                  name=imagename+'-wide', parallel_deconvolution=1024, scale='2.0arcsec', size=7200, niter=500000,
-                                 join_channels='', channels_out=6, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
-                                 mgain=0.85, auto_threshold=1.0, auto_mask=3.0, baseline_averaging='', no_update_model_required='', do_predict=True,
+                                 join_channels='', nmiter=15, channels_out=6, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
+                                 mgain=0.85, auto_threshold=1.0, auto_mask=4.0, baseline_averaging='', no_update_model_required='', do_predict=True, local_rms='',
                                  fits_mask=parset_dir+'/masks/FieldMask.fits')
             widefield_model = True
             os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
 
-            logger.info('Cleaning Virgo A subtracted low-res wide-field image...')
-            lib_util.run_wsclean(s, f'wsclean-wide-lr-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', taper_gaussian='30arcsec', data_column='SUBTRACTED_DATA',
-                                 name=imagename+'-wide-lr', parallel_deconvolution=2048, scale='6.0arcsec', size=3000, niter=500000,
-                                 join_channels='', channels_out=6, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
-                                 mgain=0.85, auto_threshold=1.0, auto_mask=3.0, baseline_averaging='', no_update_model_required='')
-            os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
+            # logger.info('Cleaning Virgo A subtracted low-res wide-field image...')
+            # lib_util.run_wsclean(s, f'wsclean-wide-lr-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', taper_gaussian='30arcsec', data_column='SUBTRACTED_DATA',
+            #                      name=imagename+'-wide-lr', parallel_deconvolution=2048, scale='6.0arcsec', size=3000, niter=500000,
+            #                      join_channels='', channels_out=6, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
+            #                      mgain=0.85, auto_threshold=1.0, auto_mask=3.0, baseline_averaging='', no_update_model_required='')
+            # os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
 
         with w.if_todo('subtract_wide_c%02i' % c):
             if not widefield_model:
