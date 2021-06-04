@@ -736,7 +736,7 @@ for cmaj in range(maxIter):
             ddf_parms_wide = {
                 'Data_MS':MSs.getStrDDF(),
                 'Data_Sort':1,
-                'Deconv_Mode': 'SSD2',
+                'Deconv_Mode': 'HMP',
                 'Weight_Robust':-0.5,
                 'Image_NPix':imgsizepix,
                 'CF_wmax':50000,
@@ -760,9 +760,8 @@ for cmaj in range(maxIter):
                 'Output_Mode': 'Clean',
                 'Deconv_CycleFactor': 0,
                 'Deconv_MaxMinorIter': 1000000,
-                'Deconv_RMSFactor': 0.0, #2.0,
+                'Deconv_RMSFactor': 2.0,
                 'Deconv_FluxThreshold': 0.0,
-                'SSD2_PolyFreqOrder': 3,
                 'HMP_AllowResidIncrease': 1.,
                 'GAClean_MaxMinorIterInitHMP': 100000,
                 'Mask_Auto': 1,
@@ -773,28 +772,28 @@ for cmaj in range(maxIter):
                 }
 
             logger.info('Cleaning...')
-            lib_util.run_DDF(s, 'ddfacet-c'+str(cmaj)+'.log', **{**ddf_parms_wide, **ddf_parms_clean},
-                    Deconv_MaxMajorIter=1,
-                    Deconv_PeakFactor=0.02,
-                    Cache_Reset=1
-                    )
+            # lib_util.run_DDF(s, 'ddfacet-c'+str(cmaj)+'.log', **{ddf_parms_wide, **ddf_parms_clean},
+            #         Deconv_MaxMajorIter=1,
+            #         Deconv_PeakFactor=0.02,
+            #         Cache_Reset=1
+            #         )
 
             # make mask
             im = lib_img.Image(imagename+'.app.restored.fits', userReg=userReg)
-            im.makeMask(threshpix=4, rmsbox=(150, 15), atrous_do=True)
+            # im.makeMask(threshpix=4, rmsbox=(150, 15), atrous_do=True)
 
-            if cmaj > 0: # additional output for final DDF call
-                ddf_parms['Output_Cubes'] = 'iI'
-                ddf_parms['Predict_ColName'] = 'MODEL_DATA' # to subtract model
+            # if cmaj > 0: # additional output for final DDF call
+            #     ddf_parms['Output_Cubes'] = 'iI'
+            #     ddf_parms['Predict_ColName'] = 'MODEL_DATA' # to subtract model
                 # ddf_parms['Output_StokesResidues'] = 'I,V' # this could be used to get stokes V residual
 
-            logger.info('Cleaning (with mask)...')
-            lib_util.run_DDF(s, 'ddfacetM-c'+str(cmaj)+'.log', **{**ddf_parms_wide, **ddf_parms_clean},
-                    Deconv_MaxMajorIter=10,
-                    Deconv_PeakFactor=0.0, #0.005,
-                    Mask_External=im.maskname,
-                    Cache_Reset=0
-                    )
+            # logger.info('Cleaning (with mask)...')
+            # lib_util.run_DDF(s, 'ddfacetM-c'+str(cmaj)+'.log', **{ddf_parms_wide, **ddf_parms_clean},
+            #         Deconv_MaxMajorIter=10,
+            #         Deconv_PeakFactor=0.005,
+            #         Mask_External=im.maskname,
+            #         Cache_Reset=0
+            #         )
 
 
             if cmaj > 0: # predict-corrupt full model for subtracted output image
