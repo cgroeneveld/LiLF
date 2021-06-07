@@ -544,8 +544,12 @@ class MS(object):
         """
         Is the dataset fully flagged?
         """
-        with tables.table(self.pathMS, ack = False) as t:
-            return np.all(t.getcol('FLAG'))
+        try:
+            with tables.table(self.pathMS, ack = False) as t:
+                return np.all(t.getcol('FLAG'))
+        except MemoryError: # can happen e.g. for full MS in timesplit (with IS and/or HBA)
+            logger.warning('Caugt MemoryError in checking for fully flagged MS! This can happen when working with large '
+                           'measurement sets. You might want to manually inspect the flags. Trying to proceed...')
 
 #    def delBeamInfo(self, col=None):
 #        """
