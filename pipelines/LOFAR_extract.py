@@ -378,17 +378,17 @@ for c in range(maxniter):
     mm_ratio = extract_image.getMaxMinRatio()
     logger.info('RMS noise (c:%02i): %f' % (c, rms_noise))
     logger.info('MM ratio (c:%02i): %f' % (c, mm_ratio))
+    if rms_noise < rms_noise_pre:
+        best_iter = c
+    else: best_iter = c - 1
 
     if rms_noise > 0.99 * rms_noise_pre and mm_ratio < 1.01 * mm_ratio_pre and c >4:
         if (mm_ratio < 10 and c >= 2) or \
                 (mm_ratio < 20 and c >= 3) or \
                 (mm_ratio < 30 and c >= 4) or \
                 (c >= 5):
-            # save best iteration
-            if rms_noise < rms_noise_pre:
-                best_iter = c
-            else: best_iter = c - 1
             break
+    # save best iteration
 
     if c >= 4 and mm_ratio >= 30:
         logger.info('Start amplitude calibration in next cycle...')
@@ -401,7 +401,7 @@ for c in range(maxniter):
 # Finally:
 with w.if_todo('apply_final'):
     if best_iter != c: # If last iteration was NOT the best iteration, apply best iteration.
-        logger.info('Best ieration: second to last cycle ({})'.format(best_iter))
+        logger.info('Best iteration: second to last cycle ({})'.format(best_iter))
         h5ph = 'extract/cal-ph-c%02i.h5' % best_iter
         h5amp1 = 'extract/cal-amp1-c%02i.h5' % best_iter
         h5amp2 = 'extract/cal-amp2-c%02i.h5' % best_iter
