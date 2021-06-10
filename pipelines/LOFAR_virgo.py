@@ -20,20 +20,17 @@ w = lib_util.Walker('pipeline-virgo.walker')
 
 parset = lib_util.getParset()
 parset_dir = parset.get('LOFAR_virgo','parset_dir')
-init_model = parset.get('LOFAR_virgo','init_model')
+init_model = parset.get('model','fits_model')
 userReg = parset.get('model','userReg')
 bl2flag = parset.get('flag','stations')
 
-uvlambdamin = 30
-t_int = 4
-# nchan = 1
 #############################################################################
 
+m87_model = '/beegfs/p1uy068/virgo/models/m87/m87'
 field_model = '/beegfs/p1uy068/virgo/models/m87_field/'
 # TODO
-# Flag below 30 deg? Or can we use this?
 # Amount of smoothing in BLSmooth?
-# Solution intervalls? For FR probably we can go to at least 8 min?
+# Solution intervals? For FR probably we can go to at least 8 min?
 # Station/antennaconstrains? For FR just all CS or maybe only superterp or so? For phases any constraint?
 # updateweights
 # amp normalization -> fulljones???
@@ -45,9 +42,9 @@ with w.if_todo('cleaning'):
     os.makedirs('img')
     # here images, models, solutions for each group will be saved
     lib_util.check_rm('self')
-    if not os.path.exists('self/solutions'): os.makedirs('self/solutions')
-    if not os.path.exists('self/plots'): os.makedirs('self/plots')
-    if not os.path.exists('self/masks'): os.makedirs('self/masks')
+    os.makedirs('self/solutions')
+    os.makedirs('self/plots')
+    os.makedirs('self/masks')
 ### DONE
 
 MSs = lib_ms.AllMSs( glob.glob('mss/TC*[0-9].MS'), s )
@@ -58,6 +55,17 @@ try:
     MSs.print_HAcov()
 except:
     logger.error('Problem with HAcov, continue anyway.')
+if MSs.resolution < 2.0:
+    uvlambdamin = 100
+    freqstep = 2  # might wanna decrease later!
+    t_int = 4 # might wanna decrease later!
+else:
+    uvlambdamin = 30
+    t_int = 4
+    freqstep = 2
+logger.info(
+    f'Resolution {MSs.resolution}\'\', using uvlambdamin={uvlambdamin}, averaging a factor of {freqstep} in freq and to an '
+    f'integration time of t_int={t_int}')
 
 with pt.table(MSs.getListObj()[0].pathMS + '/OBSERVATION', ack=False) as t:
     if 'M87' in t.getcell('LOFAR_TARGET',0):
@@ -86,41 +94,33 @@ if not os.path.exists('mss-avg'):
     avgtimeint = int(round(t_int/timeint_init))  # to 16 seconds
     nchan_init = len(MSs.getFreqs())
     nchan = np.sum(np.array(MSs.getFreqs()) < 168e6) # only use 120-168 MHz
-    nchan = 96 * (nchan // 96) # multiple of 48 after average
+    nchan = (48*freqstep) * (nchan // (48*freqstep)) # multiple of 48 after average
     os.makedirs('mss-avg')
-    logger.info('Averaging in time (%is -> %is), channels: %ich -> %ich)' % (timeint_init,timeint_init*avgtimeint,nchan_init,nchan/2))
-    MSs.run('DP3 '+parset_dir+'/DP3-avg.parset msin=$pathMS msout=mss-avg/$nameMS.MS msin.datacolumn=DATA msin.nchan='+str(nchan)+' \
-            avg.timestep='+str(avgtimeint)+' avg.freqstep=2',
-            log='$nameMS_initavg.log', commandType='DP3')
-    # logger.info('Backup flags...')
-    # MSs.addcol('FLAG_BKP', 'FLAG')
-    # MSs.addcol('FLAG_ROW_BKP', 'FLAG_ROW')
-    # MSs.run('taql "UPDATE $pathMS SET FLAG_BKP=FLAG"', log='$nameMS_taql.log', commandType='general')
-    # MSs.run('taql "UPDATE $pathMS SET FLAG_ROW_BKP=FLAG_BKP"', log='$nameMS_taql.log', commandType='general')
+    logger.info('Averaging in time (%is -> %is), channels: %ich -> %ich)' % (timeint_init,timeint_init*avgtimeint,nchan_init,nchan/freqstep))
+    MSs.run(f'DP3 {parset_dir}/DP3-avg.parset msin=$pathMS msout=mss-avg/$nameMS.MS msin.datacolumn=DATA msin.nchan={nchan} '
+            f'avg.timestep={avgtimeint} avg.freqstep={freqstep}', log='$nameMS_initavg.log', commandType='DP3')
 
 MSs = lib_ms.AllMSs( glob.glob('mss-avg/TC*[0-9].MS'), s )
 
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
-    if os.path.exists('model/img-0000-model.fits'):
-        n = len(glob.glob('model/img-[0-9]*-model.fits'))
-        logger.info('Predict (wsclean: %s - chan: %i)...' % ('model', n))
-        s.add('wsclean -predict -name model/img -j ' + str(s.max_processors) + ' -channels-out ' + str(
-            n) + ' ' + MSs.getStrWsclean(), \
-              log='wscleanPRE-init.log', commandType='wsclean', processors='max')
-        s.run(check=True)
-    else:
-        # copy sourcedb into each MS to prevent concurrent access from multiprocessing to the sourcedb
-        sourcedb_basename = init_model.split('/')[-1]
-        for MS in MSs.getListStr():
-            lib_util.check_rm(MS + '/' + sourcedb_basename)
-            logger.debug('Copy: ' + init_model + ' -> ' + MS)
-            copy2(init_model, MS)
-
+    n = len(glob.glob(f'{m87_model}-[0-9]*-model.fits'))
+    logger.info('Predict (wsclean: %s - chan: %i)...' % (m87_model, n))
+    s.add(f'wsclean -predict -name {m87_model} -j {s.max_processors} -channels-out {n} {MSs.getStrWsclean()}',
+          log='wscleanPRE-init.log', commandType='wsclean', processors='max')
+    s.run(check=True)
+    # else:
+    #     copy sourcedb into each MS to prevent concurrent access from multiprocessing to the sourcedb
+        # sourcedb_basename = init_model.split('/')[-1]
+        # for MS in MSs.getListStr():
+        #     lib_util.check_rm(MS + '/' + sourcedb_basename)
+        #     logger.debug('Copy: ' + init_model + ' -> ' + MS)
+        #     copy2(init_model, MS)
+        #
         # note: do not add MODEL_DATA or the beam is transported from DATA, while we want it without beam applied
-        logger.info('Predict (DP3: %s - %s))...' % (sourcedb_basename, target))
-        MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.usebeammodel=false pre.sources={target} '
-                f'pre.sourcedb=$pathMS/{sourcedb_basename}', log='$nameMS_pre.log', commandType='DP3')
+        # logger.info('Predict (DP3: %s - %s))...' % (sourcedb_basename, target))
+        # MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.usebeammodel=false pre.sources={target} '
+        #         f'pre.sourcedb=$pathMS/{sourcedb_basename}', log='$nameMS_pre.log', commandType='DP3')
 
 #####################################################################################################
 # Initial solve: FR
@@ -169,9 +169,9 @@ with w.if_todo('cor_fr'):
             cor.parmdb=self/solutions/cal-fr.h5 cor.correction=rotationmeasure000', log='$nameMS_corFR.log',
             commandType='DP3')
     # BL-smooth FR_CORRECTED_DATA -> FR_SMOOTHED_DATA
-    logger.info('BL-smooth...')
-    MSs.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i FR_CORRECTED_DATA -o FR_SMOOTHED_DATA $pathMS',
-            log='$nameMS_smooth.log', commandType='python', maxThreads=8)
+    # logger.info('BL-smooth...')
+    # MSs.run('BLsmooth.py -r -c 4 -n 8 -f 1e-2 -i FR_CORRECTED_DATA -o FR_SMOOTHED_DATA $pathMS',
+    #         log='$nameMS_smooth.log', commandType='python', maxThreads=8)
 ### DONE
 # Self-cal cycle
 field_subtracted = False
@@ -179,9 +179,8 @@ for c in range(100):
     # Solve cal_SB.MS: FR_SMOOTHED_DATA (only solve)
     with w.if_todo('solve_iono_c%02i' % c):
         logger.info('Solving scalarphase...')
-        # TODO sol.smoothnessconstraint=1e6 FR_SMOOTHED_DATA
         MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=FR_CORRECTED_DATA '
-                f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain  sol.uvlambdamin={uvlambdamin}' , log=f'$nameMS_sol_iono-c{c}.log', commandType="DP3")
+                f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.smoothnessconstraint=1e6 sol.uvlambdamin={uvlambdamin}' , log=f'$nameMS_sol_iono-c{c}.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'iono-c{c:02}', [ms+'/iono.h5' for ms in MSs.getListStr()], \
                             [#parset_dir+'/losoto-flag.parset',
@@ -198,24 +197,21 @@ for c in range(100):
                 log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
         ### DONE
 
-
-    if 0 < c < 4 :
+    if True:
         # Solve cal_SB.MS: CORRECTED_DATA --smooth--> SMOOTHED_DATA --solve-->
         with w.if_todo('solve_gain_c%02i' % c):
             logger.info('BL-smooth...')
-            MSs.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
+            MSs.run('BLsmooth.py -r -c 4 -n 8 -f 1e-2 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
                     log='$nameMS_smooth.log', commandType='python', maxThreads=8)
             logger.info('Solving gain...')
-            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                    f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=2e6 sol.nchan=6 sol.solint={120//t_int} '
+            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=SMOOTHED_DATA '
+                    f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=4e6 sol.nchan=6 sol.solint={120//t_int} '
                     f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_gain-c{c}.log',
                     commandType="DP3")
 
             lib_util.run_losoto(s, f'gain-c{c:02}', [ms + '/gain.h5' for ms in MSs.getListStr()], \
                                 [parset_dir + '/losoto-flag.parset',
-                                 parset_dir + '/losoto-norm.parset',
-                                 parset_dir + '/losoto-plot-amp.parset',
-                                 parset_dir + '/losoto-plot-ph.parset'])
+                                 parset_dir + '/losoto-diag.parset'])
 
             move(f'cal-gain-c{c:02}.h5', 'self/solutions/')
             move(f'plots-gain-c{c:02}', 'self/plots/')
@@ -229,43 +225,45 @@ for c in range(100):
                     log=f'$nameMS_cor_gain-c{c:02}.log',
                     commandType='DP3')
             ### DONE
-    elif c >= 4:
-        with w.if_todo('solve_fulljones%02i' % c):
-            logger.info('BL-smooth...')
-            MSs.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
-                    log='$nameMS_smooth.log', commandType='python', maxThreads=8)
-            logger.info('Solving full-Jones...')
-            # solint from 180 to 60, chan from 4 to 1, smoothness from 3 to 2
-            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                    f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.smoothnessconstraint=2e6 sol.nchan=1 sol.solint={60//t_int} '
-                    f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
-                    commandType="DP3")
-
-            lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs.getListStr()], \
-                                [#parset_dir + '/losoto-norm.parset',
-                                 parset_dir + '/losoto-plot-fulljones.parset'])
-
-            move(f'cal-fulljones-c{c:02}.h5', 'self/solutions/')
-            move(f'plots-fulljones-c{c:02}', 'self/plots/')
-
-        # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
-        with w.if_todo('cor_fulljones_c%02i' % c):
-            logger.info('Full-Jones correction...')
-            MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                    f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
-                    f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
-
+    # elif c > 4:
+    #     with w.if_todo('solve_fulljones%02i' % c):
+    #         logger.info('BL-smooth...')
+    #         MSs.run('BLsmooth.py -r -c 4 -n 8 -f 1e-2 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
+    #                 log='$nameMS_smooth.log', commandType='python', maxThreads=8)
+    #         logger.info('Solving full-Jones...')
+    #         # solint from 180 to 60, chan from 4 to 1, smoothness from 3 to 2
+    #         # sol.smoothnessconstraint = 2e6
+    #         solchan = len(MSs.getFreqs())//(len(MSs.getFreqs()) // 12)
+    #         MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=SMOOTHED_DATA '
+    #                 f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan={solchan} sol.solint={60//t_int} '
+    #                 f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
+    #                 commandType="DP3")
+    #
+    #         lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs.getListStr()], \
+    #                             [#parset_dir + '/losoto-norm.parset',
+    #                              parset_dir + '/losoto-plot-fulljones.parset'])
+    #
+    #         move(f'cal-fulljones-c{c:02}.h5', 'self/solutions/')
+    #         move(f'plots-fulljones-c{c:02}', 'self/plots/')
+    #
+    #     # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
+    #     with w.if_todo('cor_fulljones_c%02i' % c):
+    #         logger.info('Full-Jones correction...')
+    #         MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+    #                 f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
+    #                 f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
+    #
     ###################################################################################################################
     # clean CORRECTED_DATA
     imagename = f'img/img-c{c:02}'
     wsclean_params = {
-        'scale': '0.5arcsec',
-        'size': 2400,
-        'weight': 'briggs -1.5',
+        'scale': f'{MSs.resolution/5}arcsec', #'0.5arcsec',
+        'size': int(1000/(MSs.resolution/5)),
+        'weight': 'briggs -1.5', # IS?
         'join_channels': '',
         # 'deconvolution_channels': 32,
-        'fit_spectral_pol': 8,  # 3 worked fine, let's see if the central residual improves with 5
-        'channels_out': len(MSs.getFreqs()) // 12,
+        'fit_spectral_pol': 10,
+        'channels_out': len(MSs.getFreqs()) // 6,
         'minuv_l': uvlambdamin,
         'multiscale': '',
         'name': imagename,
@@ -274,7 +272,7 @@ for c in range(100):
         'baseline_averaging': 10
     }
     with w.if_todo('imaging_c%02i' % c):
-        logger.info('Cleaning (cycle: '+str(c)+')...')
+        logger.info(f'Cleaning (cycle: {c}; size: {wsclean_params["size"]}pix scale: {wsclean_params["scale"]})...')
 
         if not os.path.exists(basemask) or not os.path.exists(basemaskC):
             logger.info('Create masks...')
@@ -292,7 +290,7 @@ for c in range(100):
         logger.info('Cleaning...')
         lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1500000,
                              fits_mask=basemask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.6, gain=0.08, multiscale_gain=0.12,
-                             auto_threshold=1.2, auto_mask=3.0, **wsclean_params)
+                             threshold=0.00005, auto_threshold=0.1, auto_mask=3.0, **wsclean_params) # auto_threshold 1.2
         os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
 
     # widefield_model = False

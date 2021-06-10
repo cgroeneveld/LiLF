@@ -49,7 +49,6 @@ def getParset(parsetFile='../lilf.config'):
     add_default('PiLL', 'project', '')
     add_default('PiLL', 'target', '')
     add_default('PiLL', 'obsid', '') # unique ID
-
     # preprocess
     add_default('LOFAR_preprocess', 'fix_table', 'True') # fix bug in some old observations
     add_default('LOFAR_preprocess', 'renameavg', 'True')
@@ -86,9 +85,8 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_extract', 'maxniter', '10')
     add_default('LOFAR_extract', 'extractRegion', 'target.reg')
     add_default('LOFAR_extract', 'phSolMode', 'tecandphase') # tecandphase, phase
-    # virgo
-    add_default('LOFAR_virgo', 'init_model', os.path.dirname(__file__)+'/../models/demix_all.skydb')
-
+    # peel
+    add_default('LOFAR_peel', 'peelReg', 'peel.reg')
     ### uGMRT ###
 
     # init
@@ -103,6 +101,7 @@ def getParset(parsetFile='../lilf.config'):
     add_default('flag', 'antennas', '') # uGMRT
     # model
     add_default('model', 'sourcedb', '')
+    add_default('model', 'fits_model', '')
     add_default('model', 'apparent', 'False')
     add_default('model', 'userReg', '')
 
