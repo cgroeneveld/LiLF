@@ -168,11 +168,7 @@ with w.if_todo('cor_fr'):
     MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=FR_CORRECTED_DATA \
             cor.parmdb=self/solutions/cal-fr.h5 cor.correction=rotationmeasure000', log='$nameMS_corFR.log',
             commandType='DP3')
-    # BL-smooth FR_CORRECTED_DATA -> FR_SMOOTHED_DATA
-    # logger.info('BL-smooth...')
-    # MSs.run('BLsmooth.py -r -c 4 -n 8 -f 1e-2 -i FR_CORRECTED_DATA -o FR_SMOOTHED_DATA $pathMS',
-    #         log='$nameMS_smooth.log', commandType='python', maxThreads=8)
-### DONE
+
 # Self-cal cycle
 field_subtracted = False
 for c in range(100):
@@ -200,11 +196,8 @@ for c in range(100):
     if True:
         # Solve cal_SB.MS: CORRECTED_DATA --smooth--> SMOOTHED_DATA --solve-->
         with w.if_todo('solve_gain_c%02i' % c):
-            logger.info('BL-smooth...')
-            MSs.run('BLsmooth.py -r -c 4 -n 8 -f 1e-2 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
-                    log='$nameMS_smooth.log', commandType='python', maxThreads=8)
             logger.info('Solving gain...')
-            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=SMOOTHED_DATA '
+            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
                     f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=4e6 sol.nchan=6 sol.solint={120//t_int} '
                     f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_gain-c{c}.log',
                     commandType="DP3")
@@ -256,6 +249,7 @@ for c in range(100):
     ###################################################################################################################
     # clean CORRECTED_DATA
     imagename = f'img/img-c{c:02}'
+    # TODO test NO fit spectrum + NO join channels
     wsclean_params = {
         'scale': f'{MSs.resolution/5}arcsec', #'0.5arcsec',
         'size': int(1000/(MSs.resolution/5)),
@@ -290,7 +284,7 @@ for c in range(100):
         logger.info('Cleaning...')
         lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1500000,
                              fits_mask=basemask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.6, gain=0.08, multiscale_gain=0.12,
-                             threshold=0.00005, auto_threshold=0.1, auto_mask=3.0, **wsclean_params) # auto_threshold 1.2
+                             threshold=0.0002, auto_threshold=0.1, auto_mask=3.0, **wsclean_params) # auto_threshold 1.2
         os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
 
     # widefield_model = False

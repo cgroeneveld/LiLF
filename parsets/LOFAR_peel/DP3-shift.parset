@@ -3,7 +3,7 @@ msin.datacolumn = DATA
 #do not copy aucorr as they have too weird weights for dysco
 msin.baseline = [CR]S*&
 msout = .
-msout.datacolum = DATA
+msout.datacolumn = DATA
 msout.writefullresflag = False
 msout.storagemanager = dysco
 

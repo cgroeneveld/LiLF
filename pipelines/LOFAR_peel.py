@@ -127,7 +127,6 @@ with w.if_todo('init_model'):
 
 with w.if_todo('apply_beam'):
     logger.info('Correcting beam: DATA -> DATA...')
-    # Convince DP3 that DATA is corrected for the beam in the phase centre
     MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
     ### DONE
 
@@ -137,14 +136,10 @@ with w.if_todo('apply_beam'):
 # Self-cal cycle
 for c in range(100):
     with w.if_todo('solve_iono_c%02i' % c):
-        # logger.info('BL-smooth: DATA -> SMOOTHED_DATA...')
-        # MSs_peel.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i DATA -o SMOOTHED_DATA $pathMS',
-        #         log='$nameMS_smooth.log', commandType='python', maxThreads=8)
-        # Solve cal_SB.MS: SMOOTHED_DATA (only solve)
+        # Solve cal_SB.MS: CORRECTED_DATA (only solve)
         logger.info('Solving scalarphase...')
-        logger.info(f'{len(MSs_peel.getFreqs())//nchunks}')
-        MSs_peel.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS '
-                f'sol.h5parm=$pathMS/iono.h5 msin.datacolumn=DATA sol.mode=scalarcomplexgain sol.nchan=1 '
+        MSs_peel.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=DATA '
+                f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.nchan=1 sol.smoothnessconstraint=3e6 '
                 f'sol.uvlambdamin={uvlambdamin}' , log=f'$nameMS_sol_iono-c{c}.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'iono-c{c:02}', [ms+'/iono.h5' for ms in MSs_peel.getListStr()], \
@@ -164,17 +159,13 @@ for c in range(100):
         ### DONE
 
     with w.if_todo('solve_fulljones%02i' % c):
-        # logger.info('BL-smooth: CORRECTED_DATA -> SMOOTHED_DATA...')
-        # MSs_peel.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
-        #         log='$nameMS_smooth.log', commandType='python', maxThreads=8)
         # sol.smoothnessconstraint=2e6
         logger.info('Solving full-Jones...')
         # solint from 180 to 60, chan from 4 to 1, smoothness from 3 to 2
         MSs_peel.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones '
-                f'sol.nchan=1 sol.solint={60//t_int} ' # {len(MSs_peel.getFreqs())//nchunks}
-                f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
-                commandType="DP3")
+                     f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=4 sol.solint={300//t_int} '
+                     f'sol.smoothnessconstraint=3e6 sol.uvlambdamin={uvlambdamin}',
+                     log=f'$nameMS_sol_fulljones-c{c}.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs_peel.getListStr()], \
                             [#parset_dir + '/losoto-norm.parset',
@@ -206,78 +197,73 @@ for c in range(100):
         'no_update_model_required': '',
         'baseline_averaging': 10
     }
-    with w.if_todo('imaging_c%02i' % c):
-        logger.info(f'Cleaning (cycle: {c}; size: {wsclean_params["size"]}pix scale: {wsclean_params["scale"]})...')
+    # with w.if_todo('imaging_c%02i' % c):
+        # logger.info(f'Cleaning (cycle: {c}; size: {wsclean_params["size"]}pix scale: {wsclean_params["scale"]})...')
+        #
+        # if not os.path.exists(peelMask):
+        #     logger.info('Create mask...')
+        #     # dummy clean to get image -> mask
+        #     lib_util.run_wsclean(s, 'wsclean-c' + str(c) + '.log', MSs_peel.getStrWsclean(), niter=0, channel_range='0 1',
+        #                          interval='0 10', name=imagename, scale=wsclean_params['scale'], size=wsclean_params['size'], nmiter=0)
+        #     # create peelMask
+        #     copy2(f'{imagename}-image.fits', f'{peelMask}')
+        #     lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=True, blankval=0.)
+        #     lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=False, blankval=1.)
+        #
+        # logger.info('Cleaning...')
+        # lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs_peel.getStrWsclean(), niter=1500000,
+        #                      fits_mask=peelMask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.6, gain=0.08, multiscale_gain=0.12,
+        #                      threshold=0.0002, auto_mask=3.0, do_predict=True, **wsclean_params)
+        # os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
 
-        if not os.path.exists(peelMask):
-            logger.info('Create mask...')
-            # dummy clean to get image -> mask
-            lib_util.run_wsclean(s, 'wsclean-c' + str(c) + '.log', MSs_peel.getStrWsclean(), niter=0, channel_range='0 1',
-                                 interval='0 10', name=imagename, scale=wsclean_params['scale'], size=wsclean_params['size'], nmiter=0)
-            # create peelMask
-            copy2(f'{imagename}-image.fits', f'{peelMask}')
-            lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=True, blankval=0.)
-            lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=False, blankval=1.)
+    # with w.if_todo(f'phaseshift-c{c:02}'):
+    #     MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS shift.phasecenter=[{center[0]}deg,{center[1]}deg]',
+    #             log='$nameMS_shift.log', commandType='DP3')
+    #     logger.info('Correcting beam: DATA -> DATA...')
+    #     MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
 
-        logger.info('Cleaning...')
-        lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs_peel.getStrWsclean(), niter=1500000,
-                             fits_mask=peelMask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.6, gain=0.08, multiscale_gain=0.12,
-                             threshold=0.0002, auto_mask=3.0, do_predict=True, **wsclean_params)
-        os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
+    # with w.if_todo(f'predict-c{c:02}'):
+    #     logger.info('Predict (wsclean)')
+    #     s.add(f'wsclean -predict -name {imagename} -j {s.max_processors} -channels-out {wsclean_params["channels_out"]} {MSs_peel.getStrWsclean()}',
+    #           log=f'wscleanPRE-c{c:02}.log', commandType='wsclean', processors='max')
+    #     s.run(check=True)
 
-    if True:
-        with w.if_todo(f'test_subtract-c{c:02}'):
-            logger.info('SET SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA')
-            MSs_peel.addcol('SUBTRACTED_DATA', 'CORRECTED_DATA')
-            MSs_peel.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = CORRECTED_DATA-MODEL_DATA"', log='$nameMS_taql_subtract.log', commandType='general')
+    with w.if_todo(f'subtract-c{c:02}'):
+        logger.info('Corrupting MODEL_DATA (scalarph, diagonal)')
+        MSs_peel.run(f'DP3 {parset_dir}/DP3-corrupt.parset msin=$pathMS corI.parmdb=peel/solutions/cal-iono-c{c:02}.h5 '
+                     f'corDA.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5 corDP.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5',
+                     log=f'$nameMS_corrupt_model.log', commandType='DP3')
 
-            logger.info('Cleaning test subtracted...')
-            lib_util.run_wsclean(s, f'wsclean-testsub-c{c}.log', MSs_peel.getStrWsclean(), niter=1500000, data_column='SUBTRACTED_DATA',
-                                 fits_mask=peelMask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.6, gain=0.08,
-                                 multiscale_gain=0.12, threshold=0.001, auto_mask=3.0, **wsclean_params)
-            os.system(f'cat logs/wsclean-testsub-c{c}.log | grep "background noise"')
+        logger.info('SET SUBTRACTED_DATA = DATA - MODEL_DATA')
+        MSs_peel.addcol('SUBTRACTED_DATA', 'DATA')
+        MSs_peel.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = DATA - MODEL_DATA"', log='$nameMS_taql_subtract.log',
+                     commandType='general')
 
+    with w.if_todo(f'phaseshift-back-c{c:02}'):
+        lib_util.check_rm('mss-shift')
+        os.makedirs('mss-shift')
+        MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA shift.phasecenter=[{phasecentre[0]}deg,{phasecentre[1]}deg] '
+                     f'msout=mss-shift/$nameMS.MS ', log='$nameMS_shiftback.log', commandType='DP3')
 
-        # with w.if_todo(f'phaseshift-c{c:02}'):
-        #     MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS shift.phasecenter=[{center[0]}deg,{center[1]}deg]',
-        #             log='$nameMS_shift.log', commandType='DP3')
-        #     logger.info('Correcting beam: DATA -> DATA...')
-        #     MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
+    MSs_shift = lib_ms.AllMSs(glob.glob('mss-shift/TC*[0-9].MS'), s)
+    with w.if_todo(f'beamcorr-shift-c{c:02}'):
+        logger.info('Correcting beam: DATA -> DATA...')
+        # TODO check beam is corrected for peel direction here
+        MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
 
-        # with w.if_todo(f'predict-c{c:02}'):
-        #     logger.info('Predict (wsclean)')
-        #     s.add(f'wsclean -predict -name {imagename} -j {s.max_processors} -channels-out {wsclean_params["channels_out"]} {MSs_peel.getStrWsclean()}',
-        #           log=f'wscleanPRE-c{c:02}.log', commandType='wsclean', processors='max')
-        #     s.run(check=True)
+    with w.if_todo('cor_wide_%02i' % c):
+        logger.info('Scalarphase corruption...')
+        MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA cor.updateweights=False '
+                     f'cor.parmdb=peel/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000', \
+                     log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
+    ### DONE
+    with w.if_todo(f'clean-wide-c{c:02}'):
+        logger.info('Cleaning wide...')
+        lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs_shift.getStrWsclean(), weight='briggs -0.5', data_column='CORRECTED_DATA',
+                             name=imagename+'-wide', parallel_deconvolution=1024, scale='2.0arcsec', size=8000, niter=500000,
+                             join_channels='', channels_out=6, nmiter=15, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
+                             mgain=0.85, auto_threshold=1.0, auto_mask=4.0, baseline_averaging='', no_update_model_required='', do_predict=False, local_rms='')
+        os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
+    break
 
-        with w.if_todo(f'subtract-c{c:02}'):
-            logger.info('Corrupting MODEL_DATA (scalarph, diagonal)')
-            MSs_peel.run(f'DP3 {parset_dir}/DP3-corrupt.parset msin=$pathMS corI.parmdb=peel/solutions/cal-iono-c{c:02}.h5 '
-                         f'corDA.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5 corDP.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5',
-                         log=f'$nameMS_corrupt_model.log', commandType='DP3')
-
-            logger.info('SET SUBTRACTED_DATA = DATA - MODEL_DATA')
-            MSs_peel.addcol('SUBTRACTED_DATA', 'DATA')
-            MSs_peel.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = DATA - MODEL_DATA"', log='$nameMS_taql_subtract.log',
-                         commandType='general')
-
-        with w.if_todo(f'phaseshift-back-c{c:02}'):
-            MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS shift.phasecenter=[{phasecentre[0]}deg,{phasecentre[1]}deg]',
-                    log='$nameMS_shiftback.log', commandType='DP3')
-            logger.info('Correcting beam: DATA -> DATA...')
-            MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
-        ### DONE
-        with w.if_todo(f'clean-wide-c{c:02}'):
-            logger.info('Cleaning...')
-            lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs_peel.getStrWsclean(), weight='briggs -0.5', data_column='SUBTRACTED_DATA',
-                                 name=imagename+'-wide', parallel_deconvolution=1024, scale='2.0arcsec', size=7200, niter=500000,
-                                 join_channels='', channels_out=6, nmiter=15, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
-                                 mgain=0.85, auto_threshold=1.0, auto_mask=4.0, baseline_averaging='', no_update_model_required='', do_predict=False, local_rms='')
-            os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
-
-        with w.if_todo(f'phaseshift-c{c:02}'):
-            MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS shift.phasecenter=[{center[0]}deg,{center[1]}deg]',
-                    log='$nameMS_shift.log', commandType='DP3')
-            logger.info('Correcting beam: DATA -> DATA...')
-            MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
 logger.info("Done.")

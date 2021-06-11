@@ -15,7 +15,7 @@ corDA.parmdb =
 corDA.correction = phase000
 corDA.invert = False
 
-corDA.type = applycal
-corDA.parmdb =
-corDA.correction = amplitude000
-corDA.invert = False
+corDP.type = applycal
+corDP.parmdb =
+corDP.correction = amplitude000
+corDP.invert = False
