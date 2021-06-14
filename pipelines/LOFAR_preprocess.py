@@ -156,11 +156,11 @@ if renameavg:
                 else:
                     logger.error('Channels should be a multiple of 4 or 5.')
                     sys.exit(1)
-                if keep_IS: avg_factor_f = int(nchan / 8)  # to 8 ch/SB
+                if keep_IS: avg_factor_f = int(nchan / 4)  # to 8 ch/SB
                 elif avg_factor_f < 1: avg_factor_f = 1
 
                 avg_factor_t = int(np.round(4/timeint)) # to 4 sec
-                if keep_IS: avg_factor_t = int(np.round(2/timeint)) # to 2 sec
+                if keep_IS: avg_factor_t = int(np.round(8/timeint)) # to 8 sec
                 elif avg_factor_t < 1: avg_factor_t = 1
 
                 MSout = getName(MS.pathMS)

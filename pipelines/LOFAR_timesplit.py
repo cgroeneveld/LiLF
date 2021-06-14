@@ -26,7 +26,7 @@ initc = parset.getint('LOFAR_timesplit','initc') # initial tc num (useful for mu
 bl2flag = parset.get('flag','stations')
 
 #################################################
-print(bl2flag)
+
 # Clean
 with w.if_todo('clean'):
     logger.info('Cleaning...')

@@ -92,6 +92,7 @@ with w.if_todo('flag'):
 if not os.path.exists('mss-avg'):
     timeint_init = MSs.getListObj()[0].getTimeInt()
     avgtimeint = int(round(t_int/timeint_init))  # to 16 seconds
+    if avgtimeint < 1: avgtimeint = 1
     nchan_init = len(MSs.getFreqs())
     nchan = np.sum(np.array(MSs.getFreqs()) < 168e6) # only use 120-168 MHz
     nchan = (48*freqstep) * (nchan // (48*freqstep)) # multiple of 48 after average
@@ -127,9 +128,6 @@ with w.if_todo('init_model'):
 with w.if_todo('solve_fr'):
     logger.info('Add column CIRC_PHASEDIFF_DATA...')
     MSs.addcol('CIRC_PHASEDIFF_DATA', 'DATA', usedysco=False)
-    logger.info('BL-smooth...')
-    MSs.run('BLsmooth.py -r -c 4 -n 8 -f 5e-3 -i CIRC_PHASEDIFF_DATA -o CIRC_PHASEDIFF_DATA $pathMS',
-            log='$nameMS_smooth.log', commandType='python', maxThreads=8)
 
     logger.info('Converting to circular...')
     MSs.run('mslin2circ.py -s -i $pathMS:CIRC_PHASEDIFF_DATA -o $pathMS:CIRC_PHASEDIFF_DATA',
@@ -193,12 +191,12 @@ for c in range(100):
                 log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
         ### DONE
 
-    if True:
+    if c > 1 and MSs.resolution < 2.0 or MSs.resolution > 2.0:
         # Solve cal_SB.MS: CORRECTED_DATA --smooth--> SMOOTHED_DATA --solve-->
         with w.if_todo('solve_gain_c%02i' % c):
             logger.info('Solving gain...')
             MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                    f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=4e6 sol.nchan=6 sol.solint={120//t_int} '
+                    f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=4e6 sol.nchan=6 sol.solint={300//t_int} '
                     f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_gain-c{c}.log',
                     commandType="DP3")
 
@@ -252,12 +250,12 @@ for c in range(100):
     # TODO test NO fit spectrum + NO join channels
     wsclean_params = {
         'scale': f'{MSs.resolution/5}arcsec', #'0.5arcsec',
-        'size': int(1000/(MSs.resolution/5)),
+        'size': int(2000/(MSs.resolution/5)),
         'weight': 'briggs -1.5', # IS?
-        'join_channels': '',
+        # 'join_channels': '',
         # 'deconvolution_channels': 32,
-        'fit_spectral_pol': 10,
-        'channels_out': len(MSs.getFreqs()) // 6,
+        # 'fit_spectral_pol': 10,
+        'channels_out': len(MSs.getFreqs()) // 12,
         'minuv_l': uvlambdamin,
         'multiscale': '',
         'name': imagename,
@@ -282,9 +280,9 @@ for c in range(100):
                 lib_img.blank_image_reg(basemask, userReg, inverse=True, blankval=1.)
 
         logger.info('Cleaning...')
-        lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1500000,
-                             fits_mask=basemask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.6, gain=0.08, multiscale_gain=0.12,
-                             threshold=0.0002, auto_threshold=0.1, auto_mask=3.0, **wsclean_params) # auto_threshold 1.2
+        lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000,
+                             fits_mask=basemask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.5, gain=0.08, multiscale_gain=0.12,
+                             threshold=0.0004, auto_threshold=1.0, auto_mask=3.0, **wsclean_params) # auto_threshold 1.2
         os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
 
     # widefield_model = False
@@ -296,7 +294,7 @@ for c in range(100):
     #
     #         logger.info('Cleaning Virgo A subtracted wide-field image...')
     #         lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', data_column='SUBTRACTED_DATA',
-    #                              name=imagename+'-wide', parallel_deconvolution=1024, scale='2.0arcsec', size=7200, niter=500000,
+    #                              name=imagename+'-wide', parallel_deconvolution=1024, scale='2.0arcsec', size=9000, niter=500000,
     #                              join_channels='', channels_out=6, nmiter=15, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
     #                              mgain=0.85, auto_threshold=1.0, auto_mask=4.0, baseline_averaging='', no_update_model_required='', do_predict=True, local_rms='',
     #                              fits_mask=parset_dir+'/masks/FieldMask.fits')
@@ -304,6 +302,7 @@ for c in range(100):
     #         os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
 
             # logger.info('Cleaning Virgo A subtracted low-res wide-field image...')
+            # TODO eventuall 5arcsec lowrs
             # lib_util.run_wsclean(s, f'wsclean-wide-lr-c{c}.log', MSs.getStrWsclean(), weight='briggs -0.5', taper_gaussian='30arcsec', data_column='SUBTRACTED_DATA',
             #                      name=imagename+'-wide-lr', parallel_deconvolution=2048, scale='6.0arcsec', size=3000, niter=500000,
             #                      join_channels='', channels_out=6, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,

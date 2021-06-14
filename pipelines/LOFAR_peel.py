@@ -38,7 +38,7 @@ bl2flag = parset.get('flag','stations')
 
 uvlambdamin = 30
 t_int = 8
-freqstep = 4 # must be in [1,2,3,4,6,8,12,16,24,48]
+freqstep = 2 # must be in [1,2,3,4,6,8,12,16,24,48]
 nchunks = 20 # number of channel chunks for imaging and calibration
 
 
@@ -62,6 +62,7 @@ try:
     MSs.print_HAcov()
 except:
     logger.error('Problem with HAcov, continue anyway.')
+# TODO wanna change freqstep to 2 to have till 168 MHz
 logger.info(f'Resolution {MSs.resolution}\'\', using uvlambdamin={uvlambdamin}, averaging a factor of {freqstep} in freq and to an '
             f'integration time of t_int={t_int}')
 
@@ -189,7 +190,7 @@ for c in range(100):
         'size': int(np.max([peelReg.get_width(), peelReg.get_height()])*4500/(MSs_peel.resolution/5)), # deg2arcsec + some padding
         'weight': 'briggs -1.5',
         'join_channels': '',
-        #'fit_spectral_pol': 8,
+        'fit_spectral_pol': int(nchunks/2),
         'channels_out': nchunks,
         'minuv_l': uvlambdamin,
         'multiscale': '',
@@ -229,39 +230,45 @@ for c in range(100):
     #     s.run(check=True)
 
     with w.if_todo(f'subtract-c{c:02}'):
-        logger.info('Corrupting MODEL_DATA (scalarph, diagonal)')
-        MSs_peel.run(f'DP3 {parset_dir}/DP3-corrupt.parset msin=$pathMS corI.parmdb=peel/solutions/cal-iono-c{c:02}.h5 '
-                     f'corDA.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5 corDP.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5',
-                     log=f'$nameMS_corrupt_model.log', commandType='DP3')
+        # logger.info('Corrupting MODEL_DATA (scalarph, diagonal)')
+        # MSs_peel.run(f'DP3 {parset_dir}/DP3-corrupt.parset msin=$pathMS corI.parmdb=peel/solutions/cal-iono-c{c:02}.h5 '
+        #              f'corDA.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5 corDP.parmdb=peel/solutions/cal-fulljones-c{c:02}.h5',
+        #              log=f'$nameMS_corrupt_model.log', commandType='DP3')
 
-        logger.info('SET SUBTRACTED_DATA = DATA - MODEL_DATA')
-        MSs_peel.addcol('SUBTRACTED_DATA', 'DATA')
-        MSs_peel.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = DATA - MODEL_DATA"', log='$nameMS_taql_subtract.log',
+        logger.info('SET SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA')
+        MSs_peel.addcol('SUBTRACTED_DATA', 'CORRECTED_DATA')
+        MSs_peel.run('taql "UPDATE $pathMS SET SUBTRACTED_DATA = CORRECTED_DATA - MODEL_DATA"', log='$nameMS_taql_subtract.log',
                      commandType='general')
 
-    with w.if_todo(f'phaseshift-back-c{c:02}'):
-        lib_util.check_rm('mss-shift')
-        os.makedirs('mss-shift')
-        MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA shift.phasecenter=[{phasecentre[0]}deg,{phasecentre[1]}deg] '
-                     f'msout=mss-shift/$nameMS.MS ', log='$nameMS_shiftback.log', commandType='DP3')
+    with w.if_todo('apply_beam2'):
+        logger.info('Correcting beam: SUBTRACTED_DATA -> SUBTRACTED_DATA...')
+        MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA msout.datacolumn=SUBTRACTED_DATA '
+                     f'corrbeam.invert=False', log='$nameMS_beam.log', commandType='DP3')
+        ### DONE
 
-    MSs_shift = lib_ms.AllMSs(glob.glob('mss-shift/TC*[0-9].MS'), s)
-    with w.if_todo(f'beamcorr-shift-c{c:02}'):
-        logger.info('Correcting beam: DATA -> DATA...')
-        # TODO check beam is corrected for peel direction here
-        MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
+    # with w.if_todo(f'phaseshift-back-c{c:02}'):
+    #     lib_util.check_rm('mss-shift')
+    #     os.makedirs('mss-shift')
+    #     MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA shift.phasecenter=[{phasecentre[0]}deg,{phasecentre[1]}deg] '
+    #                  f'msout=mss-shift/$nameMS.MS ', log='$nameMS_shiftback.log', commandType='DP3')
+    #
+    # MSs_shift = lib_ms.AllMSs(glob.glob('mss-shift/TC*[0-9].MS'), s)
+    # with w.if_todo(f'beamcorr-shift-c{c:02}'):
+    #     logger.info('Correcting beam: DATA -> DATA...')
+    #     TODO check beam is corrected for peel direction here
+        # MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
 
-    with w.if_todo('cor_wide_%02i' % c):
-        logger.info('Scalarphase corruption...')
-        MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA cor.updateweights=False '
-                     f'cor.parmdb=peel/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000', \
-                     log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
+    # with w.if_todo('cor_wide_%02i' % c):
+    #     logger.info('Scalarphase correction...')
+    #     MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA cor.updateweights=False '
+    #                  f'cor.parmdb=peel/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000', \
+    #                  log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
     ### DONE
     with w.if_todo(f'clean-wide-c{c:02}'):
         logger.info('Cleaning wide...')
-        lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs_shift.getStrWsclean(), weight='briggs -0.5', data_column='CORRECTED_DATA',
+        lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs_peel.getStrWsclean(), weight='briggs -0.5', data_column='SUBTRACTED_DATA',
                              name=imagename+'-wide', parallel_deconvolution=1024, scale='2.0arcsec', size=8000, niter=500000,
-                             join_channels='', channels_out=6, nmiter=15, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=5,
+                             join_channels='', channels_out=6, nmiter=15, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=4,
                              mgain=0.85, auto_threshold=1.0, auto_mask=4.0, baseline_averaging='', no_update_model_required='', do_predict=False, local_rms='')
         os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
     break
