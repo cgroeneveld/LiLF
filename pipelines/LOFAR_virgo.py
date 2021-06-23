@@ -20,13 +20,15 @@ w = lib_util.Walker('pipeline-virgo.walker')
 
 parset = lib_util.getParset()
 parset_dir = parset.get('LOFAR_virgo','parset_dir')
+cal_dir = parset.get('LOFAR_virgo','cal_dir')
+data_dir = parset.get('LOFAR_virgo','data_dir')
 init_model = parset.get('model','fits_model')
 userReg = parset.get('model','userReg')
 bl2flag = parset.get('flag','stations')
 
 #############################################################################
-
 m87_model = '/beegfs/p1uy068/virgo/models/m87/m87'
+m87_model_hires = '/beegfs/p1uy068/virgo/models/m87/m87'
 field_model = '/beegfs/p1uy068/virgo/models/m87_field/'
 # TODO
 # Amount of smoothing in BLSmooth?
@@ -47,7 +49,7 @@ with w.if_todo('cleaning'):
     os.makedirs('self/masks')
 ### DONE
 
-MSs = lib_ms.AllMSs( glob.glob('mss/TC*[0-9].MS'), s )
+MSs = lib_ms.AllMSs( glob.glob(data_dir+'/*.MS'), s )
 if not MSs.isHBA:
     logger.error('Only HBA measurement sets supported.')
     sys.exit(1)
@@ -55,14 +57,19 @@ try:
     MSs.print_HAcov()
 except:
     logger.error('Problem with HAcov, continue anyway.')
+
+is_IS = False
 if MSs.resolution < 2.0:
-    uvlambdamin = 100
+    is_IS = True
+if is_IS:
+    uvlambdamin = 3000
     freqstep = 2  # might wanna decrease later!
-    t_int = 4 # might wanna decrease later!
+    t_int = 8 # might wanna decrease later!
 else:
     uvlambdamin = 30
     t_int = 4
     freqstep = 2
+
 logger.info(
     f'Resolution {MSs.resolution}\'\', using uvlambdamin={uvlambdamin}, averaging a factor of {freqstep} in freq and to an '
     f'integration time of t_int={t_int}')
@@ -78,6 +85,60 @@ basemaskC = 'self/masks/basemaskC.fits'
 baseregion = 'self/masks/baseregion.reg'
 baseregionC = 'self/masks/baseregionC.reg'
 phasecentre = MSs.getListObj()[0].getPhaseCentre()
+##################################################
+with w.if_todo('apply'):
+    # Find solutions to apply
+    cal_dirs = glob.glob(cal_dir + 'id*[0-9]_-_3[c|C]196') + glob.glob(cal_dir + 'id*[0-9]_-_3[c|C]295')
+    if len(cal_dirs) == 0:
+        logger.error(f'No calibrators found in cal dir: {cal_dir}')
+        sys.exit(1)
+
+    cal_times = [] # mean times of the cal
+    for cal in cal_dirs:
+        cal_ms = lib_ms.MS(glob.glob(f'{cal_dir}/{cal}/*.MS')[0]) # assume all MS are equal
+        assert cal_ms.isCalibrator()
+        cal_times.append(np.mean(cal_ms.getTimeRange()))
+    obs_time = np.mean(MSs.getListObj()[0].getTimeRange())
+    delta_t = np.abs(obs_time - np.array(cal_times))
+    cal_id = np.argmin(delta_t)
+    cal_dir = cal_dirs[cal_id]
+    if delta_t[cal_id] < 5*3600:
+        logger.info(f'Found calibrator dir {cal_dirs[cal_id]} which is {delta_t[cal_id]/3600:.2f}h from mean observation time.')
+    else:
+        logger.error(f'Found calibrator dir {cal_dirs[cal_id]} which is {delta_t[cal_id]/3600:.2f}h from mean observation time!')
+
+    logger.info('Calibrator directory: %s' % cal_dir)
+    h5_pa = cal_dir + '/cal-pa.h5'
+    h5_amp = cal_dir + '/cal-amp.h5'
+    h5_iono = cal_dir + '/cal-iono.h5'
+    if not os.path.exists(h5_pa) or not os.path.exists(h5_amp) or not os.path.exists(h5_iono):
+        logger.error("Missing solutions in %s" % cal_dir)
+        sys.exit()
+
+    # Correct fist for BP(diag)+TEC+Clock and then for beam
+    # Apply cal sol - SB.MS:DATA -> SB.MS:CORRECTED_DATA (polalign corrected)
+    logger.info('Apply solutions (pa)...')
+    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA \
+            cor.parmdb=' + h5_pa + ' cor.correction=polalign', log='$nameMS_cor1.log', commandType='DP3')
+
+    # Apply cal sol - SB.MS:CORRECTED_DATA -> SB.MS:CORRECTED_DATA (polalign corrected, calibrator corrected+reweight, beam corrected+reweight)
+    logger.info('Apply solutions (amp/ph)...')
+    if MSs.isLBA:
+        MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA cor.steps=[amp,ph] \
+                cor.amp.parmdb=' + h5_amp + ' cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True\
+                cor.ph.parmdb=' + h5_iono + ' cor.ph.correction=phaseOrig000', log='$nameMS_cor2.log',
+                commandType='DP3')
+    elif MSs.isHBA:
+        MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA cor.steps=[amp,clock] \
+                cor.amp.parmdb=' + h5_amp + ' cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True\
+                cor.clock.parmdb=' + h5_iono + ' cor.clock.correction=clockMed000', log='$nameMS_cor2.log',
+                commandType='DP3')
+
+    # Beam correction CORRECTED_DATA -> CORRECTED_DATA (polalign corrected, beam corrected+reweight)
+    logger.info('Beam correction...')
+    MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS corrbeam.updateweights=True', log='$nameMS_beam.log',
+            commandType='DP3')
+### DONE
 
 #################################################################################################
 # Initial flagging
@@ -86,6 +147,15 @@ with w.if_todo('flag'):
     MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS ant.baseline=\"{bl2flag}\" '
             f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
             log='$nameMS_flag.log', commandType='DP3')
+    logger.info('Remove bad timestamps...')
+    MSs.run('flagonmindata.py -f 0.5 $pathMS', log='$nameMS_flagonmindata.log', commandType='python')
+
+    logger.info('Plot weights...')
+    MSs.run(f'reweight.py $pathMS -v -p -a {"CS001HBA0" if MSs.isHBA else "CS001LBA"}',
+            log='$nameMS_weights.log', commandType='python')
+    move('*.png', 'self/plots')
+### DONE
+
 
 # Inital average -> for now to 8, 1 chan -> might wanna increase res later!
 # Also cut frequencies above 168 MHz such that the number of channels is multiple of 4
@@ -105,9 +175,10 @@ MSs = lib_ms.AllMSs( glob.glob('mss-avg/TC*[0-9].MS'), s )
 
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
-    n = len(glob.glob(f'{m87_model}-[0-9]*-model.fits'))
-    logger.info('Predict (wsclean: %s - chan: %i)...' % (m87_model, n))
-    s.add(f'wsclean -predict -name {m87_model} -j {s.max_processors} -channels-out {n} {MSs.getStrWsclean()}',
+    model = m87_model_hires if is_IS else m87_model
+    n = len(glob.glob(f'{model}-[0-9]*-model.fits'))
+    logger.info('Predict (wsclean: %s - chan: %i)...' % (model, n))
+    s.add(f'wsclean -predict -name {model} -j {s.max_processors} -channels-out {n} {MSs.getStrWsclean()}',
           log='wscleanPRE-init.log', commandType='wsclean', processors='max')
     s.run(check=True)
     # else:
@@ -170,11 +241,11 @@ with w.if_todo('cor_fr'):
 # Self-cal cycle
 field_subtracted = False
 for c in range(100):
-    # Solve cal_SB.MS: FR_SMOOTHED_DATA (only solve)
+    # Solve cal_SB.MS: FR_CORRECTED_DATA (only solve)
     with w.if_todo('solve_iono_c%02i' % c):
         logger.info('Solving scalarphase...')
         MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=FR_CORRECTED_DATA '
-                f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.smoothnessconstraint=1e6 sol.uvlambdamin={uvlambdamin}' , log=f'$nameMS_sol_iono-c{c}.log', commandType="DP3")
+                f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.smoothnessconstraint=2e6 sol.uvlambdamin={uvlambdamin}' , log=f'$nameMS_sol_iono-c{c}.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'iono-c{c:02}', [ms+'/iono.h5' for ms in MSs.getListStr()], \
                             [#parset_dir+'/losoto-flag.parset',
@@ -183,20 +254,20 @@ for c in range(100):
 
         move(f'cal-iono-c{c:02}.h5', 'self/solutions/')
         move(f'plots-iono-c{c:02}', 'self/plots/')
-        # Correct all FR_CORRECTED_DATA -> CORRECTED_DATA
 
+    # Correct all FR_CORRECTED_DATA -> CORRECTED_DATA
     with w.if_todo('cor_iono_c%02i' % c):
         logger.info('Scalarphase correction...')
         MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=FR_CORRECTED_DATA cor.updateweights=False cor.parmdb=self/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000', \
                 log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
-        ### DONE
+    ### DONE
 
-    if c > 1 and MSs.resolution < 2.0 or MSs.resolution > 2.0:
-        # Solve cal_SB.MS: CORRECTED_DATA --smooth--> SMOOTHED_DATA --solve-->
+    if False:
+        # Solve  CORRECTED_DATA
         with w.if_todo('solve_gain_c%02i' % c):
             logger.info('Solving gain...')
             MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                    f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=4e6 sol.nchan=6 sol.solint={300//t_int} '
+                    f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=4e6 sol.nchan=4 sol.solint={300//t_int} '
                     f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_gain-c{c}.log',
                     commandType="DP3")
 
@@ -215,53 +286,47 @@ for c in range(100):
                     f'cor.parmdb=self/solutions/cal-gain-c{c:02}.h5 cor.phase.correction=phase000',
                     log=f'$nameMS_cor_gain-c{c:02}.log',
                     commandType='DP3')
-            ### DONE
-    # elif c > 4:
-    #     with w.if_todo('solve_fulljones%02i' % c):
-    #         logger.info('BL-smooth...')
-    #         MSs.run('BLsmooth.py -r -c 4 -n 8 -f 1e-2 -i CORRECTED_DATA -o SMOOTHED_DATA $pathMS',
-    #                 log='$nameMS_smooth.log', commandType='python', maxThreads=8)
-    #         logger.info('Solving full-Jones...')
-    #         # solint from 180 to 60, chan from 4 to 1, smoothness from 3 to 2
-    #         # sol.smoothnessconstraint = 2e6
-    #         solchan = len(MSs.getFreqs())//(len(MSs.getFreqs()) // 12)
-    #         MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=SMOOTHED_DATA '
-    #                 f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan={solchan} sol.solint={60//t_int} '
-    #                 f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
-    #                 commandType="DP3")
-    #
-    #         lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs.getListStr()], \
-    #                             [#parset_dir + '/losoto-norm.parset',
-    #                              parset_dir + '/losoto-plot-fulljones.parset'])
-    #
-    #         move(f'cal-fulljones-c{c:02}.h5', 'self/solutions/')
-    #         move(f'plots-fulljones-c{c:02}', 'self/plots/')
-    #
-    #     # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
-    #     with w.if_todo('cor_fulljones_c%02i' % c):
-    #         logger.info('Full-Jones correction...')
-    #         MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-    #                 f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
-    #                 f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
-    #
+        ### DONE
+    else:
+        with w.if_todo('solve_gain_c%02i' % c):
+            logger.info('Solving full-Jones...')
+            # solchan = len(MSs.getFreqs())//(len(MSs.getFreqs()) // 12)
+            # try 10 min instead of 5..
+            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+                    f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=4 sol.solint={600//t_int} '
+                    f'sol.smoothnessconstraint=4e6 sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
+                    commandType="DP3")
+
+            lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs.getListStr()], \
+                                [#parset_dir + '/losoto-norm.parset',
+                                 parset_dir + '/losoto-plot-fulljones.parset'])
+
+            move(f'cal-fulljones-c{c:02}.h5', 'self/solutions/')
+            move(f'plots-fulljones-c{c:02}', 'self/plots/')
+
+        # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
+        with w.if_todo('cor_gain_c%02i' % c):
+            logger.info('Full-Jones correction...')
+            MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+                    f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
+                    f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
+
     ###################################################################################################################
     # clean CORRECTED_DATA
     imagename = f'img/img-c{c:02}'
-    # TODO test NO fit spectrum + NO join channels
+
     wsclean_params = {
         'scale': f'{MSs.resolution/5}arcsec', #'0.5arcsec',
-        'size': int(2000/(MSs.resolution/5)),
-        'weight': 'briggs -1.5', # IS?
-        # 'join_channels': '',
-        # 'deconvolution_channels': 32,
-        # 'fit_spectral_pol': 10,
-        'channels_out': len(MSs.getFreqs()) // 12,
+        'size': 3600 if is_IS else int(2000/(MSs.resolution/5)),
+        'weight': 'briggs -1.0' if is_IS  else'briggs -0.8',
+        'join_channels': '',
+        'fit_spectral_pol': 5,
+        'channels_out': len(MSs.getFreqs()) // 48 if is_IS else len(MSs.getFreqs()) // 24,
         'minuv_l': uvlambdamin,
-        'multiscale': '',
         'name': imagename,
         'no_update_model_required': '',
         'do_predict': True,
-        'baseline_averaging': 10
+        'mgain': 0.85,
     }
     with w.if_todo('imaging_c%02i' % c):
         logger.info(f'Cleaning (cycle: {c}; size: {wsclean_params["size"]}pix scale: {wsclean_params["scale"]})...')
@@ -272,18 +337,62 @@ for c in range(100):
             lib_util.run_wsclean(s, 'wsclean-c' + str(c) + '.log', MSs.getStrWsclean(), niter=0, channel_range='0 1',
                                  interval='0 10', name=imagename, scale=wsclean_params['scale'], size=wsclean_params['size'], nmiter=0)
             # create basemask
-            copy2(f'{parset_dir}/masks/VirAhbaEllipse.reg', f'{baseregion}')
+            copy2(f'{parset_dir}/masks/VirAhba.reg', f'{baseregion}')
             copy2(f'{imagename}-image.fits', f'{basemask}')
+            copy2(f'{parset_dir}/masks/VirAChba.reg', f'{baseregionC}')
+            copy2(f'{imagename}-image.fits', f'{basemaskC}')
             lib_img.blank_image_reg(basemask, baseregion, inverse=True, blankval=0.)
             lib_img.blank_image_reg(basemask, baseregion, inverse=False, blankval=1.)
+            lib_img.blank_image_reg(basemaskC, baseregionC, inverse=True, blankval=0.)
+            lib_img.blank_image_reg(basemaskC, baseregionC, inverse=False, blankval=1.)
             if userReg != '':
                 lib_img.blank_image_reg(basemask, userReg, inverse=True, blankval=1.)
 
-        logger.info('Cleaning...')
-        lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000,
-                             fits_mask=basemask, multiscale_scales='0,20,30,45,66,99,150', nmiter=30, mgain=0.5, gain=0.08, multiscale_gain=0.12,
-                             threshold=0.0004, auto_threshold=1.0, auto_mask=3.0, **wsclean_params) # auto_threshold 1.2
-        os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
+        if not is_IS:
+            # iterate cocoon - halo
+            last_it = False
+            am = dict() # for auto-masking
+            switch_gain = 0.78
+            threshold = 0.1 # initial threshold
+            threshold_final = 0.0003
+            i = 0
+            while threshold >= threshold_final:
+                logger.info(f'Iteration threshold = {threshold}')
+                wsclean_params['threshold'] = threshold
+                # Clean delta scale on cocoon
+                with w.if_todo(f'imaging_cocoon_c{c:02}-{i:02}'):
+                    logger.info('Cleaning cocoon...')
+                    lib_util.run_wsclean(s, f'wsclean1-c{c}.log', MSs.getStrWsclean(), niter=5000000, fits_mask=basemaskC,
+                                         gain=0.05, **wsclean_params)
+                    os.system(f'cat logs/wsclean1-c{c}.log | grep "background noise"')
+                try:
+                    del wsclean_params['mgain'] # only use C-S during first call where many orders of CC are found
+                except KeyError: pass
+                wsclean_params['cont'] = True
+                wsclean_params['reuse-psf'] = imagename
+                # Clean multi-scale halo
+                if threshold < 4 * threshold_final:
+                    am['auto_mask'] = 3.0
+                with w.if_todo(f'imaging_extended_c{c:02}-{i:02}'):
+                    logger.info('Cleaning (multi-scale) halo...')
+                    lib_util.run_wsclean(s, f'wsclean2-c{c}.log', MSs.getStrWsclean(), niter=400000, multiscale='',
+                                         multiscale_scales='0,20,40,80,160,320', fits_mask=basemask, **{**am, **wsclean_params})
+                    os.system(f'cat logs/wsclean2-c{c}.log | grep "background noise"')
+
+                i += 1
+                threshold = (1.0 - switch_gain) * threshold
+                if last_it:
+                    break
+                elif threshold < threshold_final: # perform last iteration using the minimal threshold
+                    threshold = threshold_final
+                    last_it = True
+        else: # International LOFAR Telescope
+            wsclean_params['mgain'] = 0.7
+            wsclean_params['gain'] = 0.08
+            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, fits_mask=basemaskC, multiscale='', multiscale_scales='0,20,40,80,160',
+                                 auto_mask=3.0, auto_threshold=0.5, baseline_averaging=5, multiscale_gain=0.15,**wsclean_params)
+            os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
+
 
     # widefield_model = False
     # if c >= 5 and not field_subtracted:

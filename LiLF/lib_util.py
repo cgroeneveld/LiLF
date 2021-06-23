@@ -85,8 +85,13 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_extract', 'maxniter', '10')
     add_default('LOFAR_extract', 'extractRegion', 'target.reg')
     add_default('LOFAR_extract', 'phSolMode', 'tecandphase') # tecandphase, phase
+    # virgo
+    add_default('LOFAR_virgo', 'cal_dir', '')
+    add_default('LOFAR_virgo', 'data_dir', './')
     # peel
     add_default('LOFAR_peel', 'peelReg', 'peel.reg')
+    add_default('LOFAR_peel', 'cal_dir', '')
+    add_default('LOFAR_peel', 'data_dir', './')
     ### uGMRT ###
 
     # init
@@ -97,7 +102,7 @@ def getParset(parsetFile='../lilf.config'):
     ### General ###
 
     # flag
-    add_default('flag', 'stations', 'DE*;FR*;SE*;UK*;IE*;PL*') # LOFAR
+    add_default('flag', 'stations', '') # LOFAR
     add_default('flag', 'antennas', '') # uGMRT
     # model
     add_default('model', 'sourcedb', '')
@@ -716,7 +721,7 @@ class Scheduler():
             out = subprocess.check_output('grep -l "exception occur" '+log+' ; exit 0', shell = True, stderr = subprocess.STDOUT)
             out += subprocess.check_output('grep -l "Segmentation fault\|Killed" '+log+' ; exit 0', shell = True, stderr = subprocess.STDOUT)
             out += subprocess.check_output('grep -l "Aborted" '+log+' ; exit 0', shell = True, stderr = subprocess.STDOUT)
-            out += subprocess.check_output('grep -L "Cleaning up temporary files..." '+log+' ; exit 0', shell = True, stderr = subprocess.STDOUT)
+            # out += subprocess.check_output('grep -L "Cleaning up temporary files..." '+log+' ; exit 0', shell = True, stderr = subprocess.STDOUT)
 
         elif (commandType == "python"):
             out = subprocess.check_output('grep -l "Traceback (most recent call last):" '+log+' ; exit 0', shell = True, stderr = subprocess.STDOUT)

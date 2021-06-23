@@ -128,7 +128,6 @@ MSs = lib_ms.AllMSs( glob.glob('mss*/*MS'), s )
 #############################################################
 # Flagging on concatenated dataset - also flag low-elevation
 with w.if_todo('flag'):
-
     logger.info('Flagging...')
     flag_strat = '/HBAdefaultwideband.lua' if MSs.isHBA else '/LBAdefaultwideband.lua'
     MSs.run('DP3 '+parset_dir+'/DP3-flag.parset msin=$pathMS ant.baseline=\"' + bl2flag + '\" \
@@ -137,7 +136,7 @@ with w.if_todo('flag'):
     
     logger.info('Remove bad timestamps...')
     MSs.run( 'flagonmindata.py -f 0.5 $pathMS', log='$nameMS_flagonmindata.log', commandType='python')
-    
+
     logger.info('Plot weights...')
     MSs.run(f'reweight.py $pathMS -v -p -a {"CS001HBA0" if MSs.isHBA else "CS001LBA"}',
             log='$nameMS_weights.log', commandType='python')
