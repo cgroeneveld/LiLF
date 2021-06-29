@@ -1,5 +1,5 @@
 msin = 
-msin.datacolumn = DATA
+msin.datacolumn =
 #msin.baseline = [CR]S*&&
 msout = .
 

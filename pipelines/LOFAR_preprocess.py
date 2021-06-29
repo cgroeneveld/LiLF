@@ -139,13 +139,17 @@ if renameavg:
             logger.info('Min freq: %.2f MHz' % (minfreq/1e6))
             for MS in MSs.getListObj():
 
+                if 'HBA' in MS.getAntennaSet():
+                    if np.all(MS.getFreqs() > 168.3e6):
+                        logger.warning(f'Skipping HBA above 168 MHz: {MS.pathMS}')
+                        continue
                 # get avg time/freq values
                 nchan = MS.getNchan()
                 timeint = MS.getTimeInt()
 
                 if nchan == 1:
                     avg_factor_f = 1
-                elif nchan % 2 == 0 and minfreq > 100e6: # case HBA
+                elif nchan % 2 == 0 and MSs.isHBA: # case HBA
                     avg_factor_f = int(nchan / 2)  # to 2 ch/SB
                 elif nchan % 8 == 0 and minfreq < 40e6:
                     avg_factor_f = int(nchan / 8)  # to 8 ch/SB
@@ -160,8 +164,7 @@ if renameavg:
                 elif avg_factor_f < 1: avg_factor_f = 1
 
                 avg_factor_t = int(np.round(4/timeint)) # to 4 sec
-                if keep_IS: avg_factor_t = int(np.round(8/timeint)) # to 8 sec
-                elif avg_factor_t < 1: avg_factor_t = 1
+                if avg_factor_t < 1 or keep_IS: avg_factor_t = 1
 
                 MSout = getName(MS.pathMS)
                 flog.write(MS.nameMS+'.MS\n')
@@ -177,7 +180,14 @@ if renameavg:
                             avg.timestep='+str(avg_factor_t)+' avg.freqstep='+str(avg_factor_f), \
                             log=MS.nameMS+'_avg.log', commandType='DP3')
                     s.run(check=True, maxThreads=1) # limit threads to prevent I/O isssues
-                    lib_util.check_rm(MS.pathMS)
+                    if backup_full_res:
+                        logger.info('Backup full resolution data...')
+                        if not os.path.exists('data-bkp'):
+                            os.makedirs('data-bkp')
+                        for MS in MSs.getListObj():
+                            MS.move('data-bkp/' + MS.nameMS + '.MS', keepOrig=False, overwrite=False)
+                    else:
+                        lib_util.check_rm(MS.pathMS)
                 else:
                     logger.info('%s->%s: Move data - no averaging...' % (MS.nameMS, MSout))
                     MS.move(MSout)

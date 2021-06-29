@@ -142,7 +142,7 @@ with w.if_todo('flag'):
     logger.info('Plot weights...')
     MSs.run(f'reweight.py $pathMS -v -p -a {"CS001HBA0" if MSs.isHBA else "CS001LBA"}',
             log='$nameMS_weights.log', commandType='python')
-    move('*.png', 'self/plots')
+    os.system('move *.png self/plots')
 ### DONE
 # Inital average
 # Also cut frequencies above 168 MHz such that the number of channels is multiple of 4
@@ -150,7 +150,7 @@ if not os.path.exists('mss-peel'):
     timeint_init = MSs.getListObj()[0].getTimeInt()
     avgtimeint = int(round(t_int/timeint_init))  # to 16 seconds
     nchan_init = len(MSs.getFreqs())
-    nchan = np.sum(np.array(MSs.getFreqs()) < 168e6) # only use 120-168 MHz
+    nchan = np.sum(np.array(MSs.getFreqs()) < 168.3e6) # only use 120-168 MHz
     logger.info(f'{nchan_init} channels, {nchan} of which are above 168MHz')
     nchan = (48*freqstep) * (nchan // (48*freqstep)) # multiple of 48 after average
     lib_util.check_rm('mss-peel')
@@ -160,7 +160,7 @@ if not os.path.exists('mss-peel'):
             f'msin.nchan={nchan} avg.timestep={avgtimeint} avg.freqstep={freqstep} shift.phasecenter=[{center[0]}deg,{center[1]}deg] ',
             log='$nameMS_initavg.log', commandType='DP3')
 
-MSs_peel = lib_ms.AllMSs( glob.glob('mss-peel/TC*[0-9].MS'), s )
+MSs_peel = lib_ms.AllMSs( glob.glob('mss-peel/*.MS'), s )
 
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
@@ -184,15 +184,15 @@ with w.if_todo('init_model'):
 
         # note: do not add MODEL_DATA or the beam is transported from DATA, while we want it without beam applied
         logger.info('Predict (DP3: %s))...' % (sourcedb_basename))
-        MSs_peel.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.usebeammodel=false '
+        MSs_peel.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.usebeammodel=False '
                 f'pre.sourcedb=$pathMS/{sourcedb_basename}', log='$nameMS_pre.log', commandType='DP3')
     else:
         raise ValueError('Neither fits_model not sourcedb specified in [model] section...')
 
 with w.if_todo('apply_beam'):
     logger.info('Correcting beam: DATA -> DATA...')
-    MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
-    ### DONE
+    MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS corrbeam.invert=True', log='$nameMS_beam.log', commandType='DP3')
+    # DONE
 
 # TODO is there any point to correct for the beam? Probably we can just skip this and directly subtract
 #####################################################################################################
@@ -280,18 +280,6 @@ for c in range(100):
         'baseline_averaging': 10
     }
 
-    # with w.if_todo(f'phaseshift-c{c:02}'):
-    #     MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS shift.phasecenter=[{center[0]}deg,{center[1]}deg]',
-    #             log='$nameMS_shift.log', commandType='DP3')
-    #     logger.info('Correcting beam: DATA -> DATA...')
-    #     MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
-
-    # with w.if_todo(f'predict-c{c:02}'):
-    #     logger.info('Predict (wsclean)')
-    #     s.add(f'wsclean -predict -name {imagename} -j {s.max_processors} -channels-out {wsclean_params["channels_out"]} {MSs_peel.getStrWsclean()}',
-    #           log=f'wscleanPRE-c{c:02}.log', commandType='wsclean', processors='max')
-    #     s.run(check=True)
-
     with w.if_todo(f'subtract-c{c:02}'):
         logger.info('Scalarphase corruption...')
         MSs_peel.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=MODEL_DATA msout.datacolumn=CORRUPTED_MODEL_DATA '
@@ -334,14 +322,14 @@ for c in range(100):
                      f'corrbeam.invert=False', log='$nameMS_beam.log', commandType='DP3')
         # DONE
 
-    with w.if_todo(f'phaseshift-back-c{c:02}'):
-        logger.info('Phase-shift...')
-        lib_util.check_rm('mss-shift')
-        os.makedirs('mss-shift')
-        MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA shift.phasecenter=[{phasecentre[0]}deg,{phasecentre[1]}deg] '
-                     f'msout=mss-shift/$nameMS.MS ', log='$nameMS_shiftback.log', commandType='DP3')
+    # with w.if_todo(f'phaseshift-back-c{c:02}'):
+    #     logger.info('Phase-shift...')
+    #     lib_util.check_rm('mss-shift')
+    #     os.makedirs('mss-shift')
+    #     MSs_peel.run(f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA shift.phasecenter=[{phasecentre[0]}deg,{phasecentre[1]}deg] '
+    #                  f'msout=mss-shift/$nameMS.MS ', log='$nameMS_shiftback.log', commandType='DP3')
     #
-    MSs_shift = lib_ms.AllMSs(glob.glob('mss-shift/TC*[0-9].MS'), s)
+    MSs_shift = lib_ms.AllMSs(glob.glob('mss-shift/*.MS'), s)
     with w.if_todo(f'beamcorr-shift-c{c:02}'):
         logger.info('Correcting beam: DATA -> DATA...')
         # TODO check beam is corrected for peel direction here

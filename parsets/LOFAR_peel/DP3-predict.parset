@@ -10,4 +10,5 @@ steps = [pre]
 pre.type = predict
 pre.sourcedb =
 pre.sources =
-pre.usebeammodel = False
+#pre.usebeammodel = True
+#pre.beamproximitylimit = 180

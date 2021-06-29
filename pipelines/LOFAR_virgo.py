@@ -9,7 +9,7 @@ import sys, os, glob, re
 from shutil import copy2, copytree, move
 import numpy as np
 import casacore.tables as pt
-import lsmtool
+import lsmtool as lsm
 
 ########################################################
 from LiLF import lib_ms, lib_img, lib_util, lib_log
@@ -153,7 +153,7 @@ with w.if_todo('flag'):
     logger.info('Plot weights...')
     MSs.run(f'reweight.py $pathMS -v -p -a {"CS001HBA0" if MSs.isHBA else "CS001LBA"}',
             log='$nameMS_weights.log', commandType='python')
-    move('*.png', 'self/plots')
+    os.system('move *.png self/plots')
 ### DONE
 
 
@@ -171,7 +171,7 @@ if not os.path.exists('mss-avg'):
     MSs.run(f'DP3 {parset_dir}/DP3-avg.parset msin=$pathMS msout=mss-avg/$nameMS.MS msin.datacolumn=DATA msin.nchan={nchan} '
             f'avg.timestep={avgtimeint} avg.freqstep={freqstep}', log='$nameMS_initavg.log', commandType='DP3')
 
-MSs = lib_ms.AllMSs( glob.glob('mss-avg/TC*[0-9].MS'), s )
+MSs = lib_ms.AllMSs( glob.glob('mss-avg/*.MS'), s )
 
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
@@ -316,17 +316,19 @@ for c in range(100):
     imagename = f'img/img-c{c:02}'
 
     wsclean_params = {
-        'scale': f'{MSs.resolution/5}arcsec', #'0.5arcsec',
-        'size': 3600 if is_IS else int(2000/(MSs.resolution/5)),
+        'scale': f'{0.3/5}arcsec' if is_IS else f'1.5arcsec',
+        'size': 3000 if is_IS else 1400,
         'weight': 'briggs -1.0' if is_IS  else'briggs -0.8',
         'join_channels': '',
-        'fit_spectral_pol': 5,
+        'fit_spectral_pol': 3,
         'channels_out': len(MSs.getFreqs()) // 48 if is_IS else len(MSs.getFreqs()) // 24,
+        'deconvolution_channels': len(MSs.getFreqs()) // 96 if is_IS else len(MSs.getFreqs()) // 48,
         'minuv_l': uvlambdamin,
         'name': imagename,
         'no_update_model_required': '',
         'do_predict': True,
         'mgain': 0.85,
+        'save_source_list': ''
     }
     with w.if_todo('imaging_c%02i' % c):
         logger.info(f'Cleaning (cycle: {c}; size: {wsclean_params["size"]}pix scale: {wsclean_params["scale"]})...')
@@ -350,21 +352,33 @@ for c in range(100):
 
         if not is_IS:
             # iterate cocoon - halo
-            last_it = False
+            last_it, _break = False, False
             am = dict() # for auto-masking
-            switch_gain = 0.78
-            threshold = 0.1 # initial threshold
+            switch_gain = 0.7
+            threshold = 0.2 # initial threshold
             threshold_final = 0.0003
             i = 0
-            while threshold >= threshold_final:
+            if os.path.exists(f'{imagename}-sources-merged.txt'):
+                sm = lsm.load(f'{imagename}-sources-merged.txt')
+
+            while not _break:
                 logger.info(f'Iteration threshold = {threshold}')
                 wsclean_params['threshold'] = threshold
                 # Clean delta scale on cocoon
                 with w.if_todo(f'imaging_cocoon_c{c:02}-{i:02}'):
                     logger.info('Cleaning cocoon...')
                     lib_util.run_wsclean(s, f'wsclean1-c{c}.log', MSs.getStrWsclean(), niter=5000000, fits_mask=basemaskC,
-                                         gain=0.05, **wsclean_params)
+                                         gain=0.07, **wsclean_params)
                     os.system(f'cat logs/wsclean1-c{c}.log | grep "background noise"')
+                    if i == 0:
+                        logger.debug('create initial skymodel')
+                        move(f'{imagename}-sources.txt', f'{imagename}-sources-merged.txt')
+                        sm = lsm.load(f'{imagename}-sources-merged.txt')
+                    else:
+                        logger.debug('append skymodel')
+                        sm.concatenate(f'{imagename}-sources.txt')
+                        os.remove(f'{imagename}-sources.txt')
+                        sm.write(f'{imagename}-sources-merged.txt', clobber=True)
                 try:
                     del wsclean_params['mgain'] # only use C-S during first call where many orders of CC are found
                 except KeyError: pass
@@ -376,21 +390,28 @@ for c in range(100):
                 with w.if_todo(f'imaging_extended_c{c:02}-{i:02}'):
                     logger.info('Cleaning (multi-scale) halo...')
                     lib_util.run_wsclean(s, f'wsclean2-c{c}.log', MSs.getStrWsclean(), niter=400000, multiscale='',
+                                         multiscale_shape='gaussian', #multiscale_convolution_padding=1.2,
                                          multiscale_scales='0,20,40,80,160,320', fits_mask=basemask, **{**am, **wsclean_params})
                     os.system(f'cat logs/wsclean2-c{c}.log | grep "background noise"')
+
+                    logger.debug('append skymodel')
+                    sm.concatenate(f'{imagename}-sources.txt')
+                    os.remove(f'{imagename}-sources.txt')
+                    sm.write(f'{imagename}-sources-merged.txt', clobber=True)
 
                 i += 1
                 threshold = (1.0 - switch_gain) * threshold
                 if last_it:
-                    break
+                    _break = True # normal break messes with "with"
                 elif threshold < threshold_final: # perform last iteration using the minimal threshold
                     threshold = threshold_final
                     last_it = True
         else: # International LOFAR Telescope
             wsclean_params['mgain'] = 0.7
             wsclean_params['gain'] = 0.08
-            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, fits_mask=basemaskC, multiscale='', multiscale_scales='0,20,40,80,160',
-                                 auto_mask=3.0, auto_threshold=0.5, baseline_averaging=5, multiscale_gain=0.15,**wsclean_params)
+            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, fits_mask=basemaskC, multiscale='',
+                                 multiscale_scales='0,4,7,10,20,40,80,160',
+                                 auto_mask=3.0, auto_threshold=0.8, **wsclean_params)
             os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
 
 
