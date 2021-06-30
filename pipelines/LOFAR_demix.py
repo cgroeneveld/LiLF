@@ -24,11 +24,8 @@ ateams = ['VirA', 'TauA']
 ateams_todemix = []
 for ateam in ateams:
     sep = MSs.getListObj()[0].distBrightSource(ateam)
-    if sep > 15:
+    if sep < 4 or sep > 15:
         logger.debug('No demix of %s (sep: %.0f deg)' % (ateam, sep))
-    elif sep < 3:
-        logger.warning('Test demix at sep < 4 deg...')
-        ateams_todemix.append(ateam)
     else:
         ateams_todemix.append(ateam)
         logger.warning('Demix of %s (sep: %.0f deg)' % (ateam, sep))
