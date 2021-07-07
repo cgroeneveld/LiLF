@@ -1,5 +1,5 @@
 msin = 
-msin.datacolumn = DATA
+msin.datacolumn = CORRECTED_DATA
 msout = .
 
 steps = [ant, uvmin, elev, ears, aoflagger, count]

@@ -118,16 +118,6 @@ with w.if_todo('rescale_flux'):
     s.run(check=True)
 
 ######################################
-
-if backup_full_res:
-    with w.if_todo('backup_full_res'):
-        logger.info('Backup at full resolution...')
-        if not os.path.exists('data-bkp'):
-            os.makedirs('data-bkp')
-        for MS in MSs.getListObj():
-            MS.move('data-bkp/' + MS.nameMS + '.MS', keepOrig=True, overwrite=False)
-    ### DONE
-
 # Avg to 4 chan and 2 sec
 # Remove internationals
 if renameavg:
@@ -139,10 +129,11 @@ if renameavg:
             logger.info('Min freq: %.2f MHz' % (minfreq/1e6))
             for MS in MSs.getListObj():
 
-                if 'HBA' in MS.getAntennaSet():
-                    if np.all(MS.getFreqs() > 168.3e6):
-                        logger.warning(f'Skipping HBA above 168 MHz: {MS.pathMS}')
-                        continue
+                if 'HBA' in MS.getAntennaSet() and np.all(MS.getFreqs() > 168.3e6):
+                    logger.warning(f'Skipping HBA above 168 MHz: deleting {MS.pathMS}')
+                    lib_util.check_rm(MS.pathMS)
+                    continue
+
                 # get avg time/freq values
                 nchan = MS.getNchan()
                 timeint = MS.getTimeInt()
@@ -150,7 +141,7 @@ if renameavg:
                 if nchan == 1:
                     avg_factor_f = 1
                 elif nchan % 2 == 0 and MSs.isHBA: # case HBA
-                    avg_factor_f = int(nchan / 2)  # to 2 ch/SB
+                    avg_factor_f = int(nchan / 4)  # to 2 ch/SB
                 elif nchan % 8 == 0 and minfreq < 40e6:
                     avg_factor_f = int(nchan / 8)  # to 8 ch/SB
                 elif nchan % 4 == 0:

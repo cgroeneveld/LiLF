@@ -50,6 +50,7 @@ with w.if_todo('cleaning'):
 target_reg = lib_util.Region_helper(target_reg_file)
 center = target_reg.get_center() # center of the extract region
 MSs = lib_ms.AllMSs( glob.glob('mss-extract/*MS'), s )
+
 ch_out = MSs.getChout(4e6)  # chout from dd-serial
 fwhm = MSs.getListObj()[0].getFWHM(freq='mid')
 phase_center = MSs.getListObj()[0].getPhaseCentre()
@@ -143,6 +144,7 @@ def clean(p, MSs, res='normal', size=[1, 1], empty=False, imagereg=None):
 
 
 with w.if_todo('predict_rest'):
+    # TODO update w/ new dd-serial
     # DDF predict+corrupt in MODEL_DATA of everything BUT the calibrator
     indico = wideDD_image.root + '.DicoModel'
     outdico = indico + '-' + target_reg_file.split('.')[0] # use prefix of target reg
@@ -325,6 +327,7 @@ for c in range(maxniter):
             logger.info('Gain amp calibration 1 (solint: %i)...' % solint_amp)
             # Calibration - ms:CORRECTED_DATA
             # possible to put nchan=6 if less channels are needed in the h5parm (e.g. for IDG)
+            # TODO SMOOTHED_DATA
             MSs.run('DP3 ' + parset_dir + '/DP3-solG.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA sol.h5parm=$pathMS/cal-amp1.h5 \
                 sol.mode=diagonal sol.solint=' + str(solint_amp) + ' sol.nchan=1 sol.smoothnessconstraint=4e6 sol.minvisratio=0.5 \
                 sol.antennaconstraint=[[CS001LBA,CS002LBA,CS003LBA,CS004LBA,CS005LBA,CS006LBA,CS007LBA,CS011LBA,CS013LBA,CS017LBA,CS021LBA,CS024LBA,CS026LBA,CS028LBA,CS030LBA,CS031LBA,CS032LBA,CS101LBA,CS103LBA,CS201LBA,CS301LBA,CS302LBA,CS401LBA,CS501LBA,RS106LBA,RS205LBA,RS208LBA,RS210LBA,RS305LBA,RS306LBA,RS307LBA,RS310LBA,RS406LBA,RS407LBA,RS409LBA,RS503LBA,RS508LBA,RS509LBA]]', \

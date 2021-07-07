@@ -32,10 +32,9 @@ bl2flag = parset.get('flag','stations')
 #############################################################################
 # TODO final beam corruption/correction?
 
-uvlambdamin = 30
+uvlambdamin = 100
 t_int = 8
-freqstep = 2 # must be in [1,2,3,4,6,8,12,16,24,48]
-nchunks = 20 # number of channel chunks for imaging and calibration
+freqstep = 1 # must be in [1,2,3,4,6,8,12,16,24,48] TODO should be 2chan/SB as in LOTSS!!!!
 
 # Clear
 with w.if_todo('cleaning'):
@@ -63,7 +62,7 @@ logger.info(f'Resolution {MSs.resolution}\'\', using uvlambdamin={uvlambdamin}, 
 phasecentre = MSs.getListObj()[0].getPhaseCentre()
 # region must be a list of ds9 circles and polygons (other shapes can be implemented in lib_util.Rgion_helper()
 # center = peelReg.get_center() # center of the extract region
-center = np.rad2deg([-3.00711503, 0.21626569]) # hardcoded m87 - for a fits model, does this need to be the phase center?
+center = np.rad2deg([-3.00711503, 0.21626569]) # hardcoded m87
 
 ##################################################
 with w.if_todo('apply'):
@@ -138,19 +137,35 @@ with w.if_todo('flag'):
 
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
-    assert os.path.isfile(sourcedb)
-    logger.info(f'Using sourcedb {sourcedb}.')
-    # copy sourcedb into each MS to prevent concurrent access from multiprocessing to the sourcedb
-    sourcedb_basename = sourcedb.split('/')[-1]
-    for MS in MSs.getListStr():
-        lib_util.check_rm(MS + '/' + sourcedb_basename)
-        logger.debug('Copy: ' + sourcedb + ' -> ' + MS)
-        copy2(sourcedb, MS)
+    ms = MSs.getListObj()[0]
+    path_obs_tab = ms.pathMS + "/OBSERVATION"
+    field = (pt.taql("select NAME from $path_obs_tab")).getcol("LOFAR_TARGET")[0]
+    print(field)
+    if  field.lower() == 'm87':
+        fits_model = '/beegfs/p1uy068/virgo/models/m87/m87'
+        assert os.path.isfile(fits_model + '-0000-model.fits')
+        logger.info(f' Virgo A field ({field}): using fits model {fits_model}.')
+        n = len(glob.glob(fits_model + '-[0-9]*-model.fits'))
+        logger.info('Predict (wsclean: %s - chan: %i)...' % ('model', n))
+        s.add(f'wsclean -predict -name {fits_model} -j {s.max_processors} -channels-out {n} {MSs.getStrWsclean()}',
+              log='wscleanPRE-init.log', commandType='wsclean', processors='max')
+        s.run(check=True)
+    elif 'field' in MSs.getListObj()[0].getNameField().lower():
+        assert os.path.isfile(sourcedb)
+        logger.info(f'Virgo outer field ({field}): using sourcedb {sourcedb}.')
+        # copy sourcedb into each MS to prevent concurrent access from multiprocessing to the sourcedb
+        sourcedb_basename = sourcedb.split('/')[-1]
+        for MS in MSs.getListStr():
+            lib_util.check_rm(MS + '/' + sourcedb_basename)
+            logger.debug('Copy: ' + sourcedb + ' -> ' + MS)
+            copy2(sourcedb, MS)
 
-    # note: do not add MODEL_DATA or the beam is transported from DATA, while we want it without beam applied
-    logger.info('Predict (DP3: %s))...' % (sourcedb_basename))
-    MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA pre.usebeammodel=False '
-            f'pre.sourcedb=$pathMS/{sourcedb_basename}', log='$nameMS_pre.log', commandType='DP3')
+        # note: do not add MODEL_DATA or the beam is transported from DATA, while we want it without beam applied
+        logger.info('Predict (DP3: %s))...' % (sourcedb_basename))
+        MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA pre.usebeammodel=False '
+                f'pre.sourcedb=$pathMS/{sourcedb_basename}', log='$nameMS_pre.log', commandType='DP3')
+    else:
+        raise ValueError('Neither M87 field nor other virgo field...')
 #####################################################################################################
 ### DONE
 # Self-cal cycle
@@ -158,7 +173,7 @@ with w.if_todo('solve_iono'):
     # Solve cal_SB.MS: CORRECTED_DATA (only solve)
     logger.info('Solving scalarphase...')
     MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-            f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.nchan=1 sol.smoothnessconstraint=3e6 '
+            f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.nchan=1 sol.smoothnessconstraint=1.5e6 '
             f'sol.uvlambdamin={uvlambdamin}' , log=f'$nameMS_sol_iono.log', commandType="DP3")
 
     lib_util.run_losoto(s, f'iono', [ms+'/iono.h5' for ms in MSs.getListStr()], \
@@ -178,11 +193,10 @@ with w.if_todo('cor_iono'):
 with w.if_todo('solve_gain'):
     logger.info('Solving gain...')
     MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA2 sol.h5parm=$pathMS/gain.h5 '
-            f'sol.mode=rotation+diagonal sol.smoothnessconstraint=4e6 sol.nchan=4 sol.solint={300 // t_int} '
+            f'sol.mode=diagonal sol.smoothnessconstraint=2e6 sol.nchan=4 sol.solint={60 // t_int} '
             f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_gain.log', commandType="DP3")
 
-    lib_util.run_losoto(s, f'gain', [ms + '/gain.h5' for ms in MSs.getListStr()], [parset_dir + '/losoto-diag.parset',
-                                                                                   parset_dir + '/losoto-plot-rot.parset']) # maybe remove norm for subtract?
+    lib_util.run_losoto(s, f'gain', [ms + '/gain.h5' for ms in MSs.getListStr()], [parset_dir + '/losoto-diag.parset'])
 
     move(f'cal-gain.h5', 'peel/solutions/')
     move(f'plots-gain', 'peel/plots/')
@@ -226,10 +240,9 @@ with w.if_todo(f'subtract'):
                  log=f'$nameMS_corrup_iono.log', commandType='DP3')
     logger.info('Gain corruption...')
     MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=MODEL_DATA '
-                 f'msout.datacolumn=MODEL_DATA cor.steps=[amp,phase,rot] cor.invert=False '
+                 f'msout.datacolumn=MODEL_DATA cor.steps=[amp,phase] cor.invert=False '
                  f'cor.amp.parmdb=peel/solutions/cal-gain.h5 cor.amp.correction=amplitude000 '
-                 f'cor.parmdb=peel/solutions/cal-gain.h5 cor.phase.correction=phase000 '
-                 f'cor.rot.parmdb=peel/solutions/cal-gain.h5 cor.rot.correction=rotation000',
+                 f'cor.parmdb=peel/solutions/cal-gain.h5 cor.phase.correction=phase000 ',
                  log=f'$nameMS_cor_gain.log',
                  commandType='DP3')
     # logger.info('Full-Jones corruption...')
@@ -261,6 +274,7 @@ if not os.path.exists('mss-peel'):
     nchan = (48*freqstep) * (nchan // (48*freqstep)) # multiple of 48 after average
     lib_util.check_rm('mss-peel')
     os.makedirs('mss-peel')
+    # avg_factor_freq = int(len(MSs.getFreqs()) / MSs.getChout(2*0.195312e6)) # to two channels!
     logger.info('Averaging in time (%is -> %is), channels: %ich -> %ich)' % (timeint_init,timeint_init*avgtimeint,nchan_init,nchan//freqstep))
     MSs.run(f'DP3 {parset_dir}/DP3-avg.parset msin=$pathMS msout=mss-peel/$nameMS.MS msin.datacolumn=SUBTRACTED_DATA '
             f'msin.nchan={nchan} avg.timestep={avgtimeint} avg.freqstep={freqstep}',
@@ -270,5 +284,5 @@ with w.if_todo(f'clean-wide'):
     logger.info('Test empty wide... (SUBTRACTED_DATA)')
     MSs_peel = lib_ms.AllMSs(glob.glob('mss-peel/*.MS'), s)
     lib_util.run_wsclean(s, f'wsclean-peel.log', MSs_peel.getStrWsclean(), weight='briggs -0.5', data_column='DATA',
-                         name='peel-wide-empty', scale='4.0arcsec', size=7000, niter=0, nmiter=0, minuv_l=uvlambdamin)
+                         name='peel-wide-empty', scale='5.0arcsec', size=4000, niter=0, nmiter=0, minuv_l=uvlambdamin)
 logger.info("Done.")

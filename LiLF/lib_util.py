@@ -364,8 +364,9 @@ def run_wsclean(s, logfile, MSs_files, do_predict=False, **kwargs):
 
         # files
         wsc_parms.append( MSs_files )
-
-        command_string = 'wsclean -reorder -parallel-reordering 4 -predict ' \
+        # Test without reorder as it apperas to be faster
+        # wsc_parms.insert(0, ' -reorder -parallel-reordering 4 ')
+        command_string = 'wsclean -predict ' \
                          '-j '+str(s.max_processors)+' '+' '.join(wsc_parms)
         s.add(command_string, log=logfile, commandType='wsclean', processors='max')
         s.run(check=True)
