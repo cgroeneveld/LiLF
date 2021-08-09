@@ -19,19 +19,21 @@ demix_skymodel = parset.get('LOFAR_demix','demix_model')  # skymodel to be conve
 include_target = parset.getboolean('LOFAR_demix','include_target')
 
 ##############################################
-MSs = lib_ms.AllMSs(glob.glob('mss-predemix/TC*[0-9].MS'), s)
+MSs = lib_ms.AllMSs(glob.glob('mss-predemix/*.MS'), s)
 ateams = ['VirA', 'TauA']
 ateams_todemix = []
+
+logger.info('Using demix skymodel ' + demix_skymodel)
 for ateam in ateams:
     sep = MSs.getListObj()[0].distBrightSource(ateam)
-    if sep < 4 or sep > 15:
+    if sep > 15: #  sep < 4 or
         logger.debug('No demix of %s (sep: %.0f deg)' % (ateam, sep))
     else:
         ateams_todemix.append(ateam)
         logger.warning('Demix of %s (sep: %.0f deg)' % (ateam, sep))
 
 if len(ateams_todemix) < 0:
-    logger.info('Notingh to demix.')
+    logger.info('Nothing to demix.')
     sys.exit()
 
 if os.path.exists('mss-predemix'):
@@ -42,7 +44,7 @@ else:
     os.system('mv mss mss-predemix')
     os.system('mkdir mss')
 
-MSs = lib_ms.AllMSs(glob.glob('mss-predemix/TC*[0-9].MS'), s)
+MSs = lib_ms.AllMSs(glob.glob('mss-predemix/*.MS'), s)
 
 if include_target:
     if not os.path.exists('demix_combined.skymodel'):
@@ -54,7 +56,7 @@ if include_target:
         # get model the size of the image (radius=fwhm/2)
         os.system('wget -O demix_tgts.skymodel "https://lcs165.lofar.eu/cgi-bin/gsmv1.cgi?coord=%f,%f&radius=%f&unit=deg"' % (radeg, decdeg, fwhm/2.)) # ASTRON
         lsm = lsmtool.load('demix_tgts.skymodel')
-        lsm.remove('I<1')
+        lsm.remove('I<0.5')
         lsm.group('single', root='target')
         lsm.setColValues('LogarithmicSI', ['true']*len(lsm))
         # join with ateam skymodel
@@ -77,6 +79,6 @@ logger.info('Demixing...')
 MSs.run('DP3 '+parset_dir+'/DP3-demix.parset msin=$pathMS msout=mss/$nameMS.MS demixer.skymodel=$pathMS/demix.skydb \
         demixer.instrumentmodel=$pathMS/instrument_demix demixer.targetsource='+targetsource+'\
         demixer.subtractsources=\['+','.join(ateams_todemix)+'\]',
-        log='$nameMS_demix.log', commandType='DP3', maxThreads=1)
+        log='$nameMS_demix.log', commandType='DP3')#, maxThreads=1)
 
 logger.info("Done.")

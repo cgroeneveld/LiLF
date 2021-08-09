@@ -150,7 +150,7 @@ class AllMSs(object):
         """
         sm = '' # storagemanager
         if usedysco == 'auto': # if col is dysco compressed in first MS, assume it is for all MSs
-            with tables.table(self.mssListStr[0]) as t:
+            with tables.table(self.mssListStr[0], ack=False) as t:
                 if t.getdminfo(fromcol)['TYPE'] == 'DyscoStMan':
                     sm = 'dysco'
         elif usedysco:

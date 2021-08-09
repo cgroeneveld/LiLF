@@ -1,5 +1,5 @@
 msin = 
-msin.datacolumn = DATA
+msin.datacolumn =
 msout = .
 msout.datacolumn = MODEL_DATA
 # this makes a problem in the solver, bug?
@@ -9,6 +9,4 @@ steps = [pre]
 
 pre.type = predict
 pre.sourcedb =
-pre.sources =
-#pre.usebeammodel = True
-#pre.beamproximitylimit = 180
+pre.beamproximitylimit = 180

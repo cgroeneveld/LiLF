@@ -168,6 +168,7 @@ for target in targets:
             logger.info('### %s: Starting calibrator... #####################################' % target)
             # if calibrator not downaloaded, do it
             cal_dir = local_calibrator_dirs(working_dir, obsid)
+            print(cal_dir)
             if len(cal_dir) == 0:
                 if not os.path.exists(working_dir+'/download-cal_id%i' % obsid):
                     os.makedirs(working_dir+'/download-cal_id%i' % obsid)

@@ -90,6 +90,7 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_virgo', 'data_dir', './')
     # peel
     add_default('LOFAR_peel', 'peelReg', 'peel.reg')
+    add_default('LOFAR_peel', 'predictReg', '')
     add_default('LOFAR_peel', 'cal_dir', '')
     add_default('LOFAR_peel', 'data_dir', './')
     ### uGMRT ###
@@ -359,7 +360,7 @@ def run_wsclean(s, logfile, MSs_files, do_predict=False, **kwargs):
         for parm, value in list(kwargs.items()):
             if value is None: continue
             #if 'min' in parm or 'max' in parm or parm == 'name' or parm == 'channels_out':
-            if parm == 'name' or parm == 'channels_out':
+            if parm == 'name' or parm == 'channels_out' or parm == 'use_wgridder' or parm == 'wgridder_accuracy':
                 wsc_parms.append( '-%s %s' % (parm.replace('_','-'), str(value)) )
 
         # files
