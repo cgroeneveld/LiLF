@@ -175,6 +175,11 @@ if not os.path.exists('mss-shift'):
     s.run(check=True)
 MSs_shift = lib_ms.AllMSs( glob.glob('mss-shift/*.MS'), s )
 
+with w.if_todo('apply_beam'):
+    logger.info('Correcting beam: DATA -> DATA...')
+    MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS corrbeam.invert=True', log='$nameMS_beam.log',
+                  commandType='DP3')
+
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
     if fits_model != '':
@@ -232,15 +237,17 @@ with w.if_todo('init_field_model'):
                   f'pre.sourcedb=field.skydb pre.usebeammodel=True pre.sourcedb=$pathMS/field.skydb',
                   log='$nameMS_pre.log', commandType='DP3')
 
-with w.if_todo('apply_beam'):
-    logger.info('Correcting beam: DATA -> DATA...')
-    MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS corrbeam.invert=True', log='$nameMS_beam.log',
-                  commandType='DP3')
 # DONE
 #####################################################################################################
 ### DONE
 # Self-cal cycle
-maxiter = 1 if pointing_distance <= 1/3600 else 4
+if pointing_distance <= 1/3600:
+    maxiter = 1
+elif 1/3600 < pointing_distance <= 4.:
+    maxiter = 4
+else:
+    maxiter = 3
+
 for c in range(maxiter):
     imagename = f'img/peel-c{c:02}'
     with w.if_todo('solve_iono_c%02i' % c):
