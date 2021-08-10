@@ -175,11 +175,6 @@ if not os.path.exists('mss-shift'):
     s.run(check=True)
 MSs_shift = lib_ms.AllMSs( glob.glob('mss-shift/*.MS'), s )
 
-with w.if_todo('apply_beam'):
-    logger.info('Correcting beam: DATA -> DATA...')
-    MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS corrbeam.invert=True', log='$nameMS_beam.log',
-                  commandType='DP3')
-
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
     if fits_model != '':
@@ -208,6 +203,14 @@ with w.if_todo('init_model'):
     else:
         raise ValueError('Neither fits_model not sourcedb specified in [model] section...')
 
+with w.if_todo('apply_beam'):
+    logger.info('Correcting beam: DATA -> DATA...')
+    MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS corrbeam.invert=True', log='$nameMS_beam.log',
+                  commandType='DP3')
+
+# DONE
+#####################################################################################################
+# Get mask
 if not os.path.exists(peelMask):
     logger.info('Create mask...')
     # dummy clean to get image -> mask
@@ -218,43 +221,23 @@ if not os.path.exists(peelMask):
     lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=True, blankval=0.)
     lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=False, blankval=1.)
 
-with w.if_todo('init_field_model'):
-    os.system(
-        f'wget -O field.skymodel \'http://tgssadr.strw.leidenuniv.nl/cgi-bin/gsmv4.cgi?coord={phasecentre[0]},{phasecentre[1]}&radius={MSs_shift.getListObj()[0].getFWHM("min") / 2.}&unit=deg&deconv=y\' ')   # This assumes first MS is lowest in freq
-    lsm = lsmtool.load('field.skymodel', MSs_shift.getListStr()[0])
-    lsm.remove('I<0.5', applyBeam=True)
-    lsm.remove(f'{peelMask} == True') # This should remove the peel source from the field model.
-    lsm.group('single', root='field')
-    lsm.write('field.skymodel', clobber=True)
-    lib_util.check_rm('field.skydb')
-    os.system('makesourcedb outtype="blob" format="<" in=field.skymodel out=field.skydb')
-    for MS in MSs_shift.getListStr():
-        lib_util.check_rm(MS + '/field.skydb')
-        logger.debug('Copy: field.skydb -> ' + MS)
-        copy2('field.skydb', MS)
-    logger.info('Predict field --> MODEL_DATA2')
-    MSs_shift.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=MODEL_DATA2 '
-                  f'pre.sourcedb=field.skydb pre.usebeammodel=True pre.sourcedb=$pathMS/field.skydb',
-                  log='$nameMS_pre.log', commandType='DP3')
-
-# DONE
-#####################################################################################################
-### DONE
 # Self-cal cycle
 if pointing_distance <= 1/3600:
     maxiter = 1
+    sol_factor = 1
 elif 1/3600 < pointing_distance <= 4.:
     maxiter = 4
+    sol_factor = 2
 else:
     maxiter = 3
-
+    sol_factor = 2
 for c in range(maxiter):
     imagename = f'img/peel-c{c:02}'
     with w.if_todo('solve_iono_c%02i' % c):
         logger.info('Solving scalarphase...')
         MSs_shift.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=DATA sol.h5parm=$pathMS/iono.h5 '
-                      f'sol.mode=scalarcomplexgain sol.nchan=1 sol.smoothnessconstraint=1e6 '
-                      f'sol.uvlambdamin={uvlambdamin} sol.modeldatacolumns=[MODEL_DATA,MODEL_DATA2]',
+                      f'sol.mode=scalarcomplexgain sol.nchan={sol_factor:d} sol.smoothnessconstraint={sol_factor * 1e6} sol.solint={sol_factor:d}'
+                      f'sol.uvlambdamin={uvlambdamin} sol.modeldatacolumns=[MODEL_DATA]',
                       log=f'$nameMS_sol_iono-c{c}.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'iono-c{c:02}', [ms+'/iono.h5' for ms in MSs_shift.getListStr()], \
@@ -272,39 +255,18 @@ for c in range(maxiter):
                 f'cor.parmdb=peel/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000 cor.direction=[MODEL_DATA]', \
                 log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
         ### DONE
-    # with w.if_todo('solve_gain_c%02i' % c):
-    #     logger.info('Solving gain...')
-    #     MSs_shift.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-    #             f'sol.h5parm=$pathMS/gain.h5 sol.mode=diagonal sol.smoothnessconstraint=1.5e6 sol.nchan=4 sol.solint={128 // t_int} '
-    #             f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_gain-c{c}.log',
-    #             commandType="DP3")
-    #
-    #     lib_util.run_losoto(s, f'gain-c{c:02}', [ms + '/gain.h5' for ms in MSs_shift.getListStr()], [parset_dir + '/losoto-diag.parset']) # maybe remove norm for subtract?
-    #
-    #     move(f'cal-gain-c{c:02}.h5', 'peel/solutions/')
-    #     move(f'plots-gain-c{c:02}', 'peel/plots/')
-    #
-    # # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
-    # with w.if_todo('cor_gain_c%02i' % c):
-    #     logger.info('Gain correction...')
-    #     MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA cor.steps=[amp,phase] \
-    #             cor.amp.parmdb=peel/solutions/cal-gain-c{c:02}.h5 cor.amp.correction=amplitude000 '
-    #             f'cor.parmdb=peel/solutions/cal-gain-c{c:02}.h5 cor.phase.correction=phase000',
-    #             log=f'$nameMS_cor_gain-c{c:02}.log',
-    #             commandType='DP3')
 
     with w.if_todo('solve_fulljones%02i' % c):
         logger.info('Solving full-Jones...')
         MSs_shift.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                      f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=4 sol.solint={128 // t_int} '
-                      f'sol.smoothnessconstraint=2.0e6 sol.uvlambdamin={uvlambdamin} '
-                      f'sol.modeldatacolumns=[MODEL_DATA,MODEL_DATA2]', log=f'$nameMS_sol_fulljones-c{c}.log',
+                      f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan={4*sol_factor:d} sol.solint={sol_factor * 128 // t_int:d} '
+                      f'sol.smoothnessconstraint={sol_factor * 2.0e6} sol.uvlambdamin={uvlambdamin} '
+                      f'sol.modeldatacolumns=[MODEL_DATA]', log=f'$nameMS_sol_fulljones-c{c}.log',
                       commandType="DP3")
 
         lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs_shift.getListStr()], \
                             [#parset_dir + '/losoto-norm.parset',
                              parset_dir + '/losoto-plot-fulljones.parset'])
-
         move(f'cal-fulljones-c{c:02}.h5', 'peel/solutions/')
         move(f'plots-fulljones-c{c:02}', 'peel/plots/')
 
@@ -322,13 +284,7 @@ for c in range(maxiter):
                       f'msout.datacolumn=CORRUPTED_MODEL_DATA cor.updateweights=False '
                       f'cor.parmdb=peel/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000 cor.invert=False '
                       f'cor.direction=[MODEL_DATA]', log=f'$nameMS_corrup_iono-c{c:02}.log', commandType='DP3')
-        # logger.info('Gain corruption...')
-        # MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRUPTED_MODEL_DATA '
-        #              f'msout.datacolumn=CORRUPTED_MODEL_DATA cor.steps=[amp,phase] cor.invert=False '
-        #              f'cor.amp.parmdb=peel/solutions/cal-gain-c{c:02}.h5 cor.amp.correction=amplitude000 '
-        #              f'cor.parmdb=peel/solutions/cal-gain-c{c:02}.h5 cor.phase.correction=phase000',
-        #              log=f'$nameMS_cor_gain-c{c:02}.log',
-        #              commandType='DP3')
+
         logger.info('Full-Jones corruption...')
         MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRUPTED_MODEL_DATA '
                      f'msout.datacolumn=CORRUPTED_MODEL_DATA cor.correction=fulljones cor.direction=[MODEL_DATA] '
@@ -345,15 +301,6 @@ for c in range(maxiter):
             MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA msout.datacolumn=SUBTRACTED_DATA cor.updateweights=False '
                           f'cor.parmdb=peel/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000 cor.direction=[MODEL_DATA]', \
                           log=f'$nameMS_cor_iono-c{c:02}.log', commandType='DP3')
-            # logger.info('Gain correction...')
-                # MSs_shift.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA msout.datacolumn=SUBTRACTED_DATA '
-                #              f'cor.steps=[amp,phase] \
-                #         cor.amp.parmdb=peel/solutions/cal-gain-c{c:02}.h5 cor.amp.correction=amplitude000 '
-                #              f'cor.parmdb=peel/solutions/cal-gain-c{c:02}.h5 cor.phase.correction=phase000',
-                #              log=f'$nameMS_cor_gain-c{c:02}.log',
-                #              commandType='DP3')
-                ### DONE
-
 
     with w.if_todo(f'test-image-empty-c{c:02}'):
         logger.info('Test empty... (SUBTRACTED_DATA)')
@@ -366,7 +313,6 @@ for c in range(maxiter):
         break
     elif c == 0:
         logger.info(f'Perform further self-cal for observation of {field}.')
-
 
     wsclean_params = {
         'scale': pixscale,
@@ -414,11 +360,31 @@ for c in range(maxiter):
 
 # If distant pointing -> derive and apply new phase-solutions against field model
 if pointing_distance > 2.0:
+    with w.if_todo('init_field_model'):
+        os.system(f'wget -O field.skymodel \'http://tgssadr.strw.leidenuniv.nl/cgi-bin/gsmv4.cgi?coord={phasecentre[0]},'
+                  f'{phasecentre[1]}&radius={MSs_shift.getListObj()[0].getFWHM("min") / 2.}&unit=deg&deconv=y\' ')  # This assumes first MS is lowest in freq
+        lsm = lsmtool.load('field.skymodel', MSs_shift.getListStr()[0])
+        lsm.remove('I<0.5', applyBeam=True)
+        lsm.remove(f'{peelMask} == True')  # This should remove the peel source from the field model.
+        lsm.group('single', root='field')
+        lsm.write('field.skymodel', clobber=True)
+        lib_util.check_rm('field.skydb')
+        os.system('makesourcedb outtype="blob" format="<" in=field.skymodel out=field.skydb')
+        for MS in MSs_shift.getListStr():
+            lib_util.check_rm(MS + '/field.skydb')
+            logger.debug('Copy: field.skydb -> ' + MS)
+            copy2('field.skydb', MS)
+        logger.info('Predict field --> MODEL_DATA2')
+        MSs_shift.run(
+            f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=MODEL_DATA2 '
+            f'pre.sourcedb=field.skydb pre.usebeammodel=True pre.sourcedb=$pathMS/field.skydb',
+            log='$nameMS_pre.log', commandType='DP3')
+
     with w.if_todo('sol_di'):
         logger.info('Solving direction-independent (scalarphase)...')
         MSs_shift.run(
             f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA sol.h5parm=$pathMS/di.h5 '
-            f'sol.mode=scalarcomplexgain sol.nchan=1 sol.smoothnessconstraint=1e6 '
+            f'sol.mode=scalarcomplexgain sol.nchan=4 sol.smoothnessconstraint=2.0e6 sol.sol.solint={16 // t_int:d}'
             f'sol.uvlambdamin={uvlambdamin} sol.modeldatacolumns=[MODEL_DATA2]',
             log=f'$nameMS_sol_di.log', commandType="DP3")
 
