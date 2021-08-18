@@ -31,7 +31,6 @@ m87_model = '/beegfs/p1uy068/virgo/models/m87/m87'
 m87_model_hires = '/beegfs/p1uy068/virgo/models/m87/m87'
 field_model = '/beegfs/p1uy068/virgo/models/m87_field/'
 # TODO
-# Solution intervals? For FR probably we can go to at least 8 min?
 # Station/antennaconstrains? For FR just all CS or maybe only superterp or so? For phases any constraint?
 # updateweights
 # amp normalization -> fulljones???
@@ -48,7 +47,7 @@ with w.if_todo('cleaning'):
     os.makedirs('self/masks')
 ### DONE
 
-MSs = lib_ms.AllMSs( glob.glob(data_dir+'/*.MS'), s )
+MSs = lib_ms.AllMSs( glob.glob(data_dir+'/*.MS'), s, check_flags=False )
 if not MSs.isHBA:
     logger.error('Only HBA measurement sets supported.')
     sys.exit(1)
@@ -65,13 +64,12 @@ if is_IS:
     freqstep = 2  # might wanna decrease later!
     t_int = 8 # might wanna decrease later!
 else:
-    uvlambdamin = 100
-    t_int = 4
-    freqstep = 1
+    uvlambdamin = 30
+    t_int = 8
+    final_chan_per_sb = 2
 
-logger.info(
-    f'Resolution {MSs.resolution}\'\', using uvlambdamin={uvlambdamin}, averaging a factor of {freqstep} in freq and to an '
-    f'integration time of t_int={t_int}')
+logger.info(f'Resolution {MSs.resolution}\'\', using uvlambdamin={uvlambdamin}, averaging to {final_chan_per_sb}chan/SB in freq and to an '
+            f'integration time of t_int={t_int}')
 
 with pt.table(MSs.getListObj()[0].pathMS + '/OBSERVATION', ack=False) as t:
     if 'M87' in t.getcell('LOFAR_TARGET',0):
@@ -97,87 +95,89 @@ with w.if_todo('apply'):
         cal_ms = lib_ms.MS(glob.glob(f'{cal}/*.MS')[0]) # assume all MS are equal
         assert cal_ms.isCalibrator()
         cal_times.append(np.mean(cal_ms.getTimeRange()))
-    obs_time = np.mean(MSs.getListObj()[0].getTimeRange())
-    delta_t = np.abs(obs_time - np.array(cal_times))
-    cal_id = np.argmin(delta_t)
-    cal_dir =  cal_dirs[cal_id]
-    if delta_t[cal_id] < 5*3600:
-        logger.info(f'Found calibrator dir {cal_dirs[cal_id]} which is {delta_t[cal_id]/3600:.2f}h from mean observation time.')
-    else:
-        logger.error(f'Found calibrator dir {cal_dirs[cal_id]} which is {delta_t[cal_id]/3600:.2f}h from mean observation time!')
 
-    logger.info('Calibrator directory: %s' % cal_dir)
-    h5_pa = cal_dir + '/cal-pa.h5'
-    h5_amp = cal_dir + '/cal-amp.h5'
-    h5_iono = cal_dir + '/cal-iono.h5'
-    if not os.path.exists(h5_pa) or not os.path.exists(h5_amp) or not os.path.exists(h5_iono):
-        logger.error("Missing solutions in %s" % cal_dir)
-        sys.exit()
+    for MS in MSs.getListObj():
+        obs_time = np.mean(MS.getTimeRange())
+        delta_t = np.abs(obs_time - np.array(cal_times))
+        cal_id = np.argmin(delta_t)
+        cal_dir =  cal_dirs[cal_id]
+        if delta_t[cal_id] < 5*3600:
+            logger.info(f'Found calibrator dir {cal_dirs[cal_id]} which is {delta_t[cal_id]/3600:.2f}h from mean observation time.')
+        else:
+            logger.error(f'Found calibrator dir {cal_dirs[cal_id]} which is {delta_t[cal_id]/3600:.2f}h from mean observation time!')
 
-    # Correct fist for BP(diag)+TEC+Clock and then for beam
-    # Apply cal sol - SB.MS:DATA -> SB.MS:CORRECTED_DATA (polalign corrected)
-    logger.info('Apply solutions (pa)...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA \
-            cor.parmdb=' + h5_pa + ' cor.correction=polalign', log='$nameMS_cor1.log', commandType='DP3')
+        logger.info('Calibrator directory: %s' % cal_dir)
+        h5_pa = cal_dir + '/cal-pa.h5'
+        h5_amp = cal_dir + '/cal-amp.h5'
+        h5_iono = cal_dir + '/cal-iono.h5'
+        if not os.path.exists(h5_pa) or not os.path.exists(h5_amp) or not os.path.exists(h5_iono):
+            logger.error("Missing solutions in %s" % cal_dir)
+            sys.exit()
 
-    # Apply cal sol - SB.MS:CORRECTED_DATA -> SB.MS:CORRECTED_DATA (polalign corrected, calibrator corrected+reweight, beam corrected+reweight)
-    logger.info('Apply solutions (amp/ph)...')
-    if MSs.isLBA:
-        MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS cor.steps=[amp,ph] \
-                cor.amp.parmdb=' + h5_amp + ' cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True\
-                cor.ph.parmdb=' + h5_iono + ' cor.ph.correction=phaseOrig000', log='$nameMS_cor2.log',
-                commandType='DP3')
-    elif MSs.isHBA:
-        MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS cor.steps=[amp,clock] \
-                cor.amp.parmdb=' + h5_amp + ' cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True\
-                cor.clock.parmdb=' + h5_iono + ' cor.clock.correction=clockMed000', log='$nameMS_cor2.log',
-                commandType='DP3')
+        # Apply cal sol - SB.MS:DATA -> SB.MS:CORRECTED_DATA (polalign, amp, ph, beam + reweight)
+        if 'LBA' in MS.getAntennaSet():
+            s.add(MS.concretiseString(f'DP3 {parset_dir}/DP3-corcal.parset msin=$pathMS cor.pa.parmdb={h5_pa} '
+                                      f'cor.amp.parmdb={h5_amp} cor.ph.parmdb={h5_iono} cor.ph.correction=phaseOrig000'),
+                  log=MS.concretiseString('$nameMS_corcal.log'),
+                  commandType='DP3')
+        elif 'HBA' in MS.getAntennaSet():
+            s.add(MS.concretiseString(f'DP3 {parset_dir}/DP3-corcal.parset msin=$pathMS cor.pa.parmdb={h5_pa} '
+                                      f'cor.amp.parmdb={h5_amp} cor.ph.parmdb={h5_iono} cor.ph.correction=clockMed000'),
+                  log=MS.concretiseString('$nameMS_corcal.log'),
+                  commandType='DP3')
 
-    # Beam correction CORRECTED_DATA -> CORRECTED_DATA (polalign corrected, beam corrected+reweight)
-    logger.info('Beam correction...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                                  'msout.datacolumn=CORRECTED_DATA corrbeam.updateweights=True', log='$nameMS_beam.log', commandType='DP3')
-### DONE
+    logger.info('Running - apply solutions (pa, amp, ph/clock, beam)')
+    s.run(check=True)
+    ### DONE
 
 #################################################################################################
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
-    MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS ant.baseline=\"{bl2flag}\" '
-            f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
-            log='$nameMS_flag.log', commandType='DP3')
+    s.add(f'DP3 {parset_dir}/DP3-flag.parset msin=[{",".join(MSs.getListStr())}] ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
+          f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
+          log='$nameMS_flag.log', commandType='DP3')
+    s.run(check=True)
     logger.info('Remove bad timestamps...')
     MSs.run('flagonmindata.py -f 0.5 $pathMS', log='$nameMS_flagonmindata.log', commandType='python')
 
-    logger.info('Plot weights...')
-    MSs.run(f'reweight.py $pathMS -v -p -a {"CS001HBA0" if MSs.isHBA else "CS001LBA"}',
-            log='$nameMS_weights.log', commandType='python')
-    os.system('move *.png self/plots')
+    # TODO need to make this work for more than one MS!
+    # logger.info('Plot weights...')
+    # MSs.run(f'reweight.py $pathMS -v -p -a "CS001HBA0"',
+    #         log='$nameMS_weights.log', commandType='python')
+    # os.system('move *.png self/plots')
 ### DONE
 
 
-# Inital average -> for now to 8, 1 chan -> might wanna increase res later!
-# Also cut frequencies above 168 MHz such that the number of channels is multiple of 4
 if not os.path.exists('mss-avg'):
     timeint_init = MSs.getListObj()[0].getTimeInt()
-    avgtimeint = int(round(t_int/timeint_init))  # to 4 seconds
-    if avgtimeint < 1: avgtimeint = 1
     nchan_init = len(MSs.getFreqs())
-    nchan = np.sum(np.array(MSs.getFreqs()) < 168e6) # only use 120-168 MHz
-    nchan = (48*freqstep) * (nchan // (48*freqstep)) # multiple of 48 after average
+    nchan = np.sum(np.array(MSs.getFreqs()) < 168.3e6)  # only use 120-168 MHz
+    logger.info(f'{nchan_init} channels, {nchan} of which are above 168MHz')
+    # nchan = (48*freqstep) * (nchan // (48*freqstep)) # multiple of 48 after average
+    lib_util.check_rm('mss-avg')
     os.makedirs('mss-avg')
-    logger.info('Averaging in time (%is -> %is), channels: %ich -> %ich)' % (timeint_init,timeint_init*avgtimeint,nchan_init,nchan/freqstep))
-    MSs.run(f'DP3 {parset_dir}/DP3-avg.parset msin=$pathMS msout=mss-avg/$nameMS.MS msin.datacolumn=CORRECTED_DATA msin.nchan={nchan} '
-            f'avg.timestep={avgtimeint} avg.freqstep={freqstep}', log='$nameMS_initavg.log', commandType='DP3')
+    logger.info(f'Averaging @{timeint_init}s, using {nchan} channels (from {nchan_init})')
 
-MSs = lib_ms.AllMSs( glob.glob('mss-avg/*.MS'), s )
+    for MS in MSs.getListObj():
+        nchan_thisms = int(np.sum(np.array(MS.getFreqs()) < 168.3e6))  # only use 120-168 MHz
+        if nchan_thisms == 0:
+            logger.warning(f"Skipping {MS.nameMS} (above 168.3MHz)")
+            continue
+        commandCurrent = MS.concretiseString(
+            f'DP3 {parset_dir}/DP3-avg.parset msin=$pathMS msout=mss-avg/$nameMS.MS msin.datacolumn=CORRECTED_DATA '
+            f'msin.nchan={nchan_thisms} avg.timestep=1 avg.freqstep=2')
+        logCurrent = MS.concretiseString('$nameMS_initavg.log')
+        s.add(cmd=commandCurrent, log=logCurrent, commandType='DP3', )
+    s.run(check=True)
+MSs = lib_ms.AllMSs( glob.glob('mss-avg/*.MS'), s, check_flags=False )
 
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
     model = m87_model_hires if is_IS else m87_model
     n = len(glob.glob(f'{model}-[0-9]*-model.fits'))
     logger.info('Predict (wsclean: %s - chan: %i)...' % (model, n))
-    s.add(f'wsclean -predict -no-reorder -name {model} -j {s.max_processors} -channels-out {n} {MSs.getStrWsclean()}',
+    s.add(f'wsclean -predict -no-reorder -name {model} -j {s.max_processors} -use-wgridder -channels-out {n} {MSs.getStrWsclean()}',
           log='wscleanPRE-init.log', commandType='wsclean', processors='max')
     s.run(check=True)
     # else:
@@ -238,30 +238,6 @@ for c in range(100):
             MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
                     f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
                     f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
-    else:
-        with w.if_todo('solve_gain_c%02i' % c):
-            logger.info('Solving gain...')
-            MSs.run(
-                f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=DATA sol.h5parm=$pathMS/gain.h5 '
-                f'sol.mode=rotation+diagonal sol.nchan=1 sol.solint=1 sol.smoothnessconstraint=1e6 '
-                f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_gain-c{c:02}.log', commandType="DP3")
-
-            lib_util.run_losoto(s, f'gain-c{c:02}', [ms + '/gain.h5' for ms in MSs.getListStr()],
-                                [parset_dir + '/losoto-diag.parset',
-                                 parset_dir + '/losoto-plot-rot.parset'])  # maybe remove norm for subtract?
-
-            move(f'cal-gain-c{c:02}.h5', 'self/solutions/')
-            move(f'plots-gain-c{c:02}', 'self/plots/')
-
-        # Correct gain amp and ph DATA -> CORRECTED_DATA
-        with w.if_todo('cor_gain_c%02i' % c):
-            logger.info('Gain correction...')
-            MSs.addcol('CORRECTED_DATA', 'DATA')
-            MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA cor.steps=[amp,phase] \
-                    cor.amp.parmdb=self/solutions/cal-gain-c{c:02}.h5 cor.amp.correction=amplitude000 '
-                    f'cor.parmdb=self/solutions/cal-gain-c{c:02}.h5 cor.phase.correction=phase000',
-                    log=f'$nameMS_cor_gain-c{c:02}.log',
-                    commandType='DP3')
 
     ###################################################################################################################
     # clean CORRECTED_DATA
