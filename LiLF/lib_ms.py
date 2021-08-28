@@ -392,7 +392,7 @@ class MS(object):
         Returns the number of time slots in this MS
         """
         with tables.table(self.pathMS, ack = False) as t:
-            return len(t.getcol("TIME"))
+            return len(np.unique(t.getcol("TIME")))
 
 
     def getTimeInt(self):

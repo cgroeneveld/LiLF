@@ -134,10 +134,9 @@ with w.if_todo('apply'):
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
-    s.add(f'DP3 {parset_dir}/DP3-flag.parset msin=[{",".join(MSs.getListStr())}] ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
-          f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
-          log='$nameMS_flag.log', commandType='DP3')
-    s.run(check=True)
+    MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS  ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
+            f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
+            log='$pathMS_flag.log', commandType='DP3')
     logger.info('Remove bad timestamps...')
     MSs.run('flagonmindata.py -f 0.5 $pathMS', log='$nameMS_flagonmindata.log', commandType='python')
 
@@ -147,7 +146,6 @@ with w.if_todo('flag'):
     #         log='$nameMS_weights.log', commandType='python')
     # os.system('move *.png self/plots')
 ### DONE
-
 
 if not os.path.exists('mss-avg'):
     timeint_init = MSs.getListObj()[0].getTimeInt()
@@ -166,7 +164,7 @@ if not os.path.exists('mss-avg'):
             continue
         commandCurrent = MS.concretiseString(
             f'DP3 {parset_dir}/DP3-avg.parset msin=$pathMS msout=mss-avg/$nameMS.MS msin.datacolumn=CORRECTED_DATA '
-            f'msin.nchan={nchan_thisms} avg.timestep=1 avg.freqstep=2')
+            f'msin.nchan={nchan_thisms} avg.timestep=2 avg.freqstep=4')
         logCurrent = MS.concretiseString('$nameMS_initavg.log')
         s.add(cmd=commandCurrent, log=logCurrent, commandType='DP3', )
     s.run(check=True)
@@ -256,6 +254,7 @@ for c in range(100):
         'name': imagename,
         'no_update_model_required': '',
         'do_predict': True,
+        'use_wgridder': '',
         'mgain': 0.85,
         'multiscale': '',
         'save_source_list': '',

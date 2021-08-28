@@ -51,16 +51,14 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1):
     """
     with w.if_todo(f'solve_iono_{suffix}'):
         logger.info('Solving scalarphase...')
-        s.add(f'DP3 {parset_dir}/DP3-soldd.parset msin=[{",".join(MSs_object.getListStr())}] sol.h5parm=$pathMS/iono.h5 '
-                         f'sol.mode=scalarcomplexgain sol.nchan={sol_factor_f:d} sol.smoothnessconstraint={1.5e6} '
-                         f'sol.solint={sol_factor_t:d} sol.uvlambdamin={uvlambdamin}',
-                         log=f'sol_iono-{suffix}.log', commandType="DP3")
-        s.run(check=True)
+        run_DP3_solve_t_parallel(MSs_object, f'DP3 {parset_dir}/DP3-soldd.parset sol.mode=scalarcomplexgain '
+                                 f'sol.nchan={sol_factor_f:d} sol.smoothnessconstraint={sol_factor_f*1.0e06} '
+                                 f'sol.solint={sol_factor_t:d} sol.uvlambdamin={uvlambdamin}',
+                                 'iono-'+suffix, 16,
+                                 [parset_dir+'/losoto-flag.parset',
+                                 parset_dir + '/losoto-plot-scalaramp.parset',
+                                 parset_dir + '/losoto-plot-scalarph.parset'])
 
-        lib_util.run_losoto(s, f'iono-c{c:02}', [ms + '/iono.h5' for ms in MSs_object.getListStr()], \
-                            [  # parset_dir+'/losoto-flag.parset',
-                                parset_dir + '/losoto-plot-scalaramp.parset',
-                                parset_dir + '/losoto-plot-scalarph.parset'])
         move(f'cal-iono-{suffix}.h5', 'peel/solutions/')
         move(f'plots-iono-{suffix}', 'peel/plots/')
 
@@ -73,21 +71,18 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1):
 
     with w.if_todo(f'solve_fulljones_{suffix}'):
         logger.info('Solving full-Jones...')
-        s.add(f'DP3 {parset_dir}/DP3-soldd.parset msin=[{",".join(MSs_object.getListStr())}] msin.datacolumn=CORRECTED_DATA '
-                         f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan={4 * sol_factor_f:d} sol.solint={sol_factor_t * 128 // t_int:d} '
-                         f'sol.smoothnessconstraint={2.0e6} sol.uvlambdamin={uvlambdamin}',
-                         log=f'sol_fulljones-{suffix}.log', commandType="DP3")
-        s.run(check=True)
+        run_DP3_solve_t_parallel(MSs_object, f'DP3 {parset_dir}/DP3-soldd.parset msin.datacolumn=CORRECTED_DATA '
+                                 f'sol.mode=fulljones sol.nchan={sol_factor_f:d} sol.smoothnessconstraint={sol_factor_f*2.0e6} '
+                                 f'sol.solint={sol_factor_t * 128 // t_int:d} sol.uvlambdamin={uvlambdamin}',
+                                 'fulljones-'+suffix, 8, [parset_dir + '/losoto-plot-fulljones.parset'])
 
-        lib_util.run_losoto(s, f'fulljones-{suffix}', [ms + '/fulljones.h5' for ms in MSs_object.getListStr()], \
-                            [parset_dir + '/losoto-plot-fulljones.parset'])
         move(f'cal-fulljones-{suffix}.h5', 'peel/solutions/')
         move(f'plots-fulljones-{suffix}', 'peel/plots/')
 
     # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
     with w.if_todo(f'cor_fulljones_{suffix}'):
         logger.info('Full-Jones correction CORRECTED_DATA -> CORRECTED_DATA...')
-        MSs_object.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS cor.correction=fulljones '
+        MSs_object.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS cor.correction=fulljones msin.datacolumn=CORRECTED_DATA '
                          f'cor.parmdb=peel/solutions/cal-fulljones-{suffix}.h5 cor.soltab=\[amplitude000,phase000\]',
                          log=f'$nameMS_cor_gain-{suffix}.log', commandType='DP3')
 
@@ -126,7 +121,7 @@ def corrupt_subtract_testimage(MSs_object, suffix, sol_suffix=None):
             f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=SUBTRACTED_DATA '
             f'msout.datacolumn=SUBTRACTED_DATA cor.updateweights=False '
             f'cor.parmdb=peel/solutions/cal-iono-{sol_suffix}.h5 cor.correction=phase000', \
-            log=f'$nameMS_cor_iono-{sol_suffix}.log', commandType='DP3')
+            log=f'$nameMS_cor_iono_subtracted-{sol_suffix}.log', commandType='DP3')
 
     with w.if_todo(f'test-image-empty-{suffix}'):
         logger.info('Test empty... (SUBTRACTED_DATA)')
@@ -136,7 +131,7 @@ def corrupt_subtract_testimage(MSs_object, suffix, sol_suffix=None):
                              no_update_model_required='',
                              minuv_l=uvlambdamin)
 
-def predict_fits_model(MSs_object, model_basename, stepname='init_model', predict_reg=None):
+def predict_fits_model(MSs_object, model_basename, stepname='init_model', predict_reg=None, apply_beam=True):
     """
     Predict a fits_model into one or more MS files. Optionally, blank fits model with 'predict_reg'
     Parameters
@@ -154,9 +149,46 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
         logger.info(f'Using fits model {model_basename}.')
         n = len(glob.glob(model_basename + '-[0-9]*-model.fits'))
         logger.info('Predict (wsclean: %s - chan: %i)...' % ('model', n))
-        s.add(f'wsclean -predict -name {model_basename}  -j {s.max_processors} -use-wgridder -channels-out {n} '
+        _str = ' -grid-with-beam -use-idg -use-differential-lofar-beam ' if apply_beam else ''
+        s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -use-wgridder -channels-out {n} {_str}'
               f'{MSs_object.getStrWsclean()}', log=f'wscleanPRE-{stepname}.log', commandType='wsclean', processors='max')
         s.run(check=True)
+
+def run_DP3_solve_t_parallel(MSs_files, command, h5parm_prefix, n_timechunk, losoto_parsets):
+    """
+
+    Parameters
+    ----------
+    MSs_files
+    command
+    h5parm_base
+    n_timechunk
+    """
+    s = MSs_files.scheduler
+    if not command[0:3] == 'DP3':
+        raise ValueError(f'Command does not appear to be a DP3 call: {command}')
+    # assert that time ranges are equal
+    for i, ms in enumerate(MSs_files.getListObj()):
+        range_this = ms.getTimeRange()
+        if i > 0 and not range_last == range_this:
+            raise ValueError('timechunk parallelization only implemented for AllMSs objects with same time range.')
+        range_last = range_this
+    # split timesteps according to n_timechunk (roughly equal but not exactly!)
+    timesteps_split = np.array_split(np.arange(MSs_files.getListObj()[0].getNtime()), n_timechunk)
+    logger.info(f"Parallelize {len(timesteps_split)} chunks.")
+    # check command for key msin
+    if 'msin=' not in command:
+        command += f' msin=[{",".join(MSs_files.getListStr())}] '
+    # Iterrate timesteps and add commands du scheduler
+    for i, timesteps in enumerate(timesteps_split):
+        this_h5parm = f'{MSs_files.getListObj()[0].pathDirectory}/{h5parm_prefix}-t{i:02}.h5'
+        this_command = command + f' numthreads={s.max_processors // n_timechunk} msin.starttimeslot={timesteps[0]} ' \
+                                 f'msin.ntimes={len(timesteps)} sol.h5parm={this_h5parm}'
+        s.add(this_command, log=f'{h5parm_prefix}-t{i:02}.log', commandType='DP3')
+    s.run(check=True)
+
+    lib_util.run_losoto(s, h5parm_prefix, [f'{MSs_files.getListObj()[0].pathDirectory}/{h5parm_prefix}-t{i:02}.h5' for i in range(n_timechunk)],
+               losoto_parsets)
 #############################################################################
 # Clear
 with w.if_todo('cleaning'):
@@ -242,10 +274,9 @@ with w.if_todo('apply'):
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
-    s.add(f'DP3 {parset_dir}/DP3-flag.parset msin=[{",".join(MSs.getListStr())}]  ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
+    MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
             f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
             log='$nameMS_flag.log', commandType='DP3')
-    s.run(check=True)
     logger.info('Remove bad timestamps...')
     MSs.run('flagonmindata.py -f 0.5 $pathMS', log='$nameMS_flagonmindata.log', commandType='python')
 
@@ -288,21 +319,22 @@ if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
         MSs_shift.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS corrbeam.invert=True', log='$nameMS_beam.log',
                       commandType='DP3')
 
-    name_msavg = MSs_shift.getListObj()[0].getNameField() + '-combined.MS'
+    name_msavg = field + '-combined.MS'
     if not os.path.exists('mss-shiftavg'):
         timeint = MSs_shift.getListObj()[0].getTimeInt()
-        t_avg_factor = int(16/timeint)
+        t_avg_factor = round(16/timeint)
         nchan_shift = len(MSs_shift.getFreqs())
         nchan_shiftavg = len(MSs_shift.getListObj()) / 2 # 0.5 chan/SB
-        f_avg_factor = int(nchan_shift/nchan_shiftavg)
+        f_avg_factor = round(nchan_shift/nchan_shiftavg)
         lib_util.check_rm('mss-shiftavg')
         os.makedirs('mss-shiftavg')
         # Average all MSs to one single MS (so that we can average to less than 1 chan/SB)
         logger.info(f'Averaging {timeint}s -> {t_avg_factor*timeint}s; {nchan_shift}chan -> {nchan_shiftavg}chan')
-        s.add(f'DP3 {parset_dir}/DP3-avg.parset msin=[{",".join(MSs_shift.getListStr())}] msout=mss-shiftavg/{name_msavg}'
-              f' avg.timestep={t_avg_factor} avg.freqstep={f_avg_factor}', log=f'create-shiftavg.log', commandType='DP3')
+        s.add(f'DP3 {parset_dir}/DP3-avg.parset msin=[{",".join(MSs_shift.getListStr())}] msin.datacolumn=DATA '
+              f'msout=mss-shiftavg/{name_msavg} avg.timestep={t_avg_factor} avg.freqstep={f_avg_factor} numthreads={s.max_processors}',
+              log=f'create-shiftavg.log', commandType='DP3')
         s.run(check=True)
-    MSs_shiftavg = lib_ms.AllMSs(f'mss-shiftavg/{name_msavg}', s, check_flags=False )
+    MSs_shiftavg = lib_ms.AllMSs(glob.glob(f'mss-shiftavg/{name_msavg}'), s, check_flags=False )
 
     # Add model to MODEL_DATA
     predict_fits_model(MSs_shiftavg, fits_model)
@@ -319,23 +351,23 @@ if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
         lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=False, blankval=1.)
 
     # Self-cal cycle
-    # TODO check if this already works
-    if pointing_distance <= 1/3600:
-        maxiter = 1
-        sol_factor_t, sol_factor_f = 1, 1
-    elif 1/3600 < pointing_distance <= 5:
-        maxiter = 4
-        sol_factor_t, sol_factor_f = 1, 1
+    sol_factor_f = 1
+    if 1/3600 < pointing_distance <= 3:
+        maxiter = 1 #4
+    elif 3 < pointing_distance <= 5:
+        maxiter = 1 #4
+        sol_factor_f = 2
     else:
         maxiter = 1
-        sol_factor_t, sol_factor_f = 1, 1
+    if maxiter == 1:
+        selfcal_model = fits_model
     for c in range(maxiter):
         imagename = f'img/peel-c{c:02}'
         ##################################################################################
         # solve+apply scalarphase and fulljones
-        solve_and_apply(MSs_shiftavg, f'{c:02}', sol_factor_t, sol_factor_f)
+        solve_and_apply(MSs_shiftavg, f'c{c:02}', sol_factor_f=sol_factor_f)
         # corrupt and subtract with above solutions
-        corrupt_subtract_testimage(MSs_shiftavg, f'{c:02}')
+        corrupt_subtract_testimage(MSs_shiftavg, f'c{c:02}')
         ##################################################################################
         # Imaging
         if c <= maxiter - 2: # SKIP last iteration imaging -> we wont use the new model anyways
@@ -358,7 +390,7 @@ if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
             }
             with w.if_todo('imaging_c%02i' % c):
                 logger.info(f'Cleaning (cycle: {c}; size: {imgsize} pix scale: {pixscale})...')
-                lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs_shift.getStrWsclean(), niter=1000000,
+                lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs_shiftavg.getStrWsclean(), niter=1000000,
                                      multiscale_convolution_padding=1.2, multiscale_scales='0,20,40,80,160,320',
                                      fits_mask=peelMask, **wsclean_params)
                 os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
@@ -366,12 +398,13 @@ if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
             # predict with BLANKED model
             predict_fits_model(MSs_shiftavg, selfcal_model, stepname=f'predict_{c:02}', predict_reg=predictReg)
     # Predict last selfcal model to MSs_shift
+    MSs_shift.addcol('MODEL_DATA', 'DATA', False)
     predict_fits_model(MSs_shift, selfcal_model, stepname=f'predict_fnal', predict_reg=predictReg)
     # Subtract the model
-    corrupt_subtract_testimage(MSs_shift, 'fnal', sol_suffix=f'{c:02}') # --> SUBTRACT_DATA
+    corrupt_subtract_testimage(MSs_shift, 'fnal', sol_suffix=f'c{c:02}') # --> SUBTRACT_DATA
     MSs_subtracted = MSs_shift
 else: #CASE 2: Model and MS are aligned. Solve
-    predict_fits_model(MSs, fits_model)
+    predict_fits_model(MSs, fits_model, apply_beam=False)
     solve_and_apply(MSs, field)
     corrupt_subtract_testimage(MSs, field) # --> SUBTRACTED_DATA
     MSs_subtracted = MSs
@@ -396,7 +429,7 @@ if not os.path.exists('mss-peel'):
     # TODO check beam is corrected for peel direction here
     MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
 
-MSs_peel = lib_ms.AllMSs(glob.glob('mss-peel/*.ms'), s)
+MSs_peel = lib_ms.AllMSs(glob.glob('mss-peel/*.ms'), s, check_flags=False)
 # If distant pointing -> derive and apply new phase-solutions against field model
 if pointing_distance > 1.0:
     with w.if_todo('init_field_model'):
@@ -421,15 +454,25 @@ if pointing_distance > 1.0:
 
     with w.if_todo('sol_di'): # Solve DATA vs. MODEL_DATA
         logger.info('Solving direction-independent (scalarphase)...')
-        s.add(
-            f'DP3 {parset_dir}/DP3-soldd.parset msin=[{",".join(MSs_peel.getListStr())}] msin.datacolumn=DATA sol.h5parm=$pathMS/di.h5 '
-            f'sol.mode=scalarcomplexgain sol.nchan=4 sol.smoothnessconstraint=2.0e6 sol.solint={16 // t_int:d} '
-            f'sol.uvlambdamin={uvlambdamin}',
-            log=f'$nameMS_sol_di.log', commandType="DP3")
-        s.run(check=True)
+        # run_DP3_solve_t_parallel(MSs_peel, f'DP3 {parset_dir}/DP3-soldd.parset sol.mode=scalarcomplexgain '
+        #                                      f'sol.nchan=1 sol.smoothnessconstraint=2.0e06 '
+        #                                      f'sol.solint={16 // t_int:d} sol.uvlambdamin={uvlambdamin}',
+        #                          'di', 16,
+        #                          # TODO activate flag?
+        #                          [  # parset_dir+'/losoto-flag.parset',
+        #                              parset_dir + '/losoto-plot-scalaramp.parset',
+        #                              parset_dir + '/losoto-plot-scalarph.parset'])
+        #
+        # move(f'cal-di.h5', 'peel/solutions/')
+        # move(f'plots-di', 'peel/plots/')
+        MSs_peel.run(
+            f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=DATA '
+            f'sol.h5parm=$pathMS/di.h5 sol.mode=scalarcomplexgain sol.nchan=1 '
+            f'sol.solint={16 // t_int:d} sol.uvlambdamin={uvlambdamin}',
+            log='$nameMS_sol_sol_di.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'di', [ms + '/di.h5' for ms in MSs_peel.getListStr()], \
-                            [ parset_dir+'/losoto-flag.parset',
+                            [ # parset_dir+'/losoto-flag.parset',
                               parset_dir + '/losoto-plot-scalaramp.parset',
                               parset_dir + '/losoto-plot-scalarph.parset'])
         move(f'cal-di.h5', 'peel/solutions/')
@@ -445,7 +488,7 @@ if pointing_distance > 1.0:
 with w.if_todo(f'test-image-wide-c{c:02}'):
     logger.info('Cleaning wide...') # IMAGING - either on DATA or if present, CORRECTED_DATA
     lib_util.run_wsclean(s, f'wsclean-wide-c{c}.log', MSs_peel.getStrWsclean(), weight='briggs -0.5',
-                         name='peel-wide',  parallel_deconvolution=1024, scale='4.0arcsec', size=5000, niter=500000,
+                         name='img/peel-wide',  parallel_deconvolution=1024, scale='4.0arcsec', size=5000, niter=500000,
                          join_channels='', channels_out=3, nmiter=10, fit_spectral_pol=3, minuv_l=uvlambdamin, multiscale='', multiscale_max_scales=4,
                          mgain=0.85, auto_threshold=1.0, auto_mask=4.0, no_update_model_required='', do_predict=False, local_rms='')
     os.system(f'cat logs/wsclean-wide-c{c}.log | grep "background noise"')
