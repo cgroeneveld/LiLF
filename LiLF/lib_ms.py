@@ -94,7 +94,7 @@ class AllMSs(object):
         Return a list of freqs per chan per SB
         """
         freqs = [ list(ms.getFreqs()) for ms in self.mssListObj ]
-        return list(set([item for sublist in freqs for item in sublist])) # flatten
+        return np.array([item for sublist in freqs for item in sublist]).flatten()
 
 
     def getBandwidth(self):
@@ -102,7 +102,7 @@ class AllMSs(object):
         Return the total span of frequency covered by this MS set
         """
         freqs = self.getFreqs()
-        return max(freqs) - min(freqs)
+        return freqs.max() - freqs.min()
 
     def getChout(self, size=4.e6):
         """

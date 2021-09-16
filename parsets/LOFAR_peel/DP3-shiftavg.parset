@@ -1,4 +1,7 @@
-msin = 
+msin =
+msin.nchan =
+msin.missingdata = True
+msin.orderms = False
 msin.datacolumn =
 #do not copy aucorr as they have too weird weights for dysco
 msin.baseline = [CR]S*&
