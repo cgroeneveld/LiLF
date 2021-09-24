@@ -93,6 +93,7 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_peel', 'predictReg', '')
     add_default('LOFAR_peel', 'cal_dir', '')
     add_default('LOFAR_peel', 'data_dir', './')
+    add_default('LOFAR_peel', 'demix_skymodel', 'demix.skymodel')
     ### uGMRT ###
 
     # init
@@ -505,6 +506,9 @@ class Walker():
             sys.settrace(lambda *args, **keys: None)
             frame = sys._getframe(1)
             frame.f_trace = self.trace
+        else:
+            logger.log(20, '>> start >> {}'.format(self.__step__))
+
 
     def trace(self, frame, event, arg):
         raise Skip()
@@ -516,10 +520,10 @@ class Walker():
         if type is None:
             with open(self.filename, "a") as f:
                 f.write(self.__step__ + '\n')
-            logger.debug('Done: {}'.format(self.__step__))
+            logger.info('<< done << {}'.format(self.__step__))
             return  # No exception
         if issubclass(type, Skip):
-            logger.warning('SKIP: {}'.format(self.__step__))
+            logger.warning('>> skip << {}'.format(self.__step__))
             return True  # Suppress special SkipWithBlock exception
 
 class Scheduler():

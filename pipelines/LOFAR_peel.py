@@ -27,7 +27,7 @@ cal_dir = parset.get('LOFAR_peel','cal_dir')
 data_dir = parset.get('LOFAR_peel','data_dir')
 peelReg = parset.get('LOFAR_peel','peelReg')  # default peel.reg
 predictReg = parset.get('LOFAR_peel','predictReg')  # default None
-sourcedb = parset.get('model','sourcedb')
+demix_skymodel = parset.get('LOFAR_peel','demix_skymodel')
 fits_model = parset.get('model','fits_model')
 bl2flag = parset.get('flag','stations')
 
@@ -150,6 +150,11 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
     predict_reg
     """
     with w.if_todo(stepname):
+        # addcol MODEL_DATA if not there
+        with pt.table(MSs_object.getListStr()[0]) as t:
+            if not 'MODEL_DATA' in t.colnames(): # assume true for all
+                MSs_object.addcol('MODEL_DATA', 'DATA', False)
+        # TODO should copy here not to change original model
         if predict_reg:
             for model_img in glob.glob(model_basename + '*-model.fits'):
                 lib_img.blank_image_reg(model_img, predict_reg, inverse=True, blankval=0.)
@@ -197,6 +202,45 @@ def run_DP3_solve_t_parallel(MSs_files, command, h5parm_prefix, n_timechunk, los
 
     lib_util.run_losoto(s, h5parm_prefix, [f'{MSs_files.getListObj()[0].pathDirectory}/{h5parm_prefix}-t{i:02}.h5' for i in range(n_timechunk)],
                losoto_parsets)
+
+def do_testimage(MSs_files):
+    # clean CORRECTED_DATA
+    imagename = f'img/test-corrected'
+
+    wsclean_params = {
+        'scale': f'1.5arcsec',
+        'size': 1200,
+        'weight': 'briggs -0.6',
+        'join_channels': '',
+        'fit_spectral_pol': 5,
+        'channels_out': 12, # len(MSs.getFreqs()) // 24,
+        'minuv_l': uvlambdamin,
+        'name': imagename,
+        'no_update_model_required': '',
+        'mgain': 0.85,
+        'multiscale': '',
+        'auto_mask': 3.0,
+        'auto_threshold': 1.0,
+        'baseline_averaging': 10,
+    }
+    with w.if_todo('imaging_corrected'):
+        logger.info(f'Cleaning corrected...')
+        basemask = 'img/mask-corrected'
+        if not os.path.exists(basemask):
+            logger.info('Create masks...')
+            # dummy clean to get image -> mask
+            lib_util.run_wsclean(s, 'wsclean-mask-corrected.log', MSs_files.getStrWsclean(), niter=0, channel_range='0 1', no_reorder='',
+                                 interval='0 10', name=imagename, scale=wsclean_params['scale'], size=wsclean_params['size'], nmiter=0)
+            # create basemask
+            copy2(f'{parset_dir}/masks/VirAhba.reg', f'{peelReg.filename}')
+            copy2(f'{imagename}-image.fits', f'{basemask}')
+            lib_img.blank_image_reg(basemask, peelReg.filename, inverse=True, blankval=0.)
+            lib_img.blank_image_reg(basemask, peelReg.filename, inverse=False, blankval=1.)
+            logger.info('Cleaning corrected...')
+            lib_util.run_wsclean(s, f'wsclean-corrected.log', MSs_files.getStrWsclean(), niter=1000000,
+                                 multiscale_scales='0,20,40,80,160,320', fits_mask=basemask, **wsclean_params)
+            os.system(f'cat logs/wsclean-corrected.log | grep "background noise"')
+
 #############################################################################
 # Clear
 with w.if_todo('cleaning'):
@@ -260,21 +304,23 @@ with w.if_todo('apply'):
         logger.error("Missing solutions in %s" % cal_dir)
         sys.exit()
 
-    # Apply cal sol - SB.MS:DATA -> SB.MS:CORRECTED_DATA (polalign corrected)
+    # Apply cal sol - SB.MS:DATA -> SB.MS:CAL_CORRECTED_DATA (polalign corrected)
     logger.info('Apply solutions (pa)...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA \
+    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CAL_CORRECTED_DATA \
             cor.parmdb=' + h5_pa + ' cor.correction=polalign', log='$nameMS_cor1.log', commandType='DP3')
 
-    # Apply cal sol - SB.MS:CORRECTED_DATA -> SB.MS:CORRECTED_DATA (polalign corrected, calibrator corrected+reweight, beam corrected+reweight)
+    # Apply cal sol - SB.MS:CAL_CORRECTED_DATA -> SB.MS:CAL_CORRECTED_DATA (polalign corrected, calibrator corrected+reweight, beam corrected+reweight)
     logger.info('Apply solutions (amp/ph)...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA cor.steps=[amp,clock] \
-            cor.amp.parmdb=' + h5_amp + ' cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True\
-            cor.clock.parmdb=' + h5_iono + ' cor.clock.correction=clockMed000', log='$nameMS_cor2.log',
+    MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CAL_CORRECTED_DATA '
+            f'msout.datacolumn=CAL_CORRECTED_DATA cor.steps=[amp,clock] cor.amp.parmdb={h5_amp} '
+            f'cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True cor.clock.parmdb={h5_iono} '
+            f'cor.clock.correction=clockMed000', log='$nameMS_cor2.log',
             commandType='DP3')
 
-    # Beam correction CORRECTED_DATA -> CORRECTED_DATA (polalign corrected, beam corrected+reweight)
+    # Beam correction CAL_CORRECTED_DATA -> CAL_CORRECTED_DATA (polalign corrected, beam corrected+reweight)
     logger.info('Beam correction...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS corrbeam.updateweights=True', log='$nameMS_beam.log',
+    MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS msin.datacolumn=CAL_CORRECTED_DATA '
+            'msout.datacolumn=CAL_CORRECTED_DATA corrbeam.updateweights=True', log='$nameMS_beam.log',
             commandType='DP3')
 ### DONE
 
@@ -282,7 +328,7 @@ with w.if_todo('apply'):
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
-    MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
+    MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS ant.baseline=\"{bl2flag}\" msin.datacolumn=CAL_CORRECTED_DATA '
             f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
             log='$nameMS_flag.log', commandType='DP3')
     logger.info('Remove bad timestamps...')
@@ -300,7 +346,7 @@ with pt.table(MSs.getListObj()[0].pathMS + "/OBSERVATION") as tab:
 
 # Self-cal cycle
 sol_factor_f = 1 if pointing_distance < 3 else 2
-if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
+if 1/3600 < pointing_distance < 5 : # CASE 1 -> model and MS not aligned, peel
     if not os.path.exists('mss-shift'):
         timeint_init = MSs.getListObj()[0].getTimeInt()
         nchan_init = len(MSs.getFreqs())
@@ -317,7 +363,7 @@ if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
                 logger.warning(f"Skipping {MS.nameMS} (above 168.3MHz)")
                 continue
             commandCurrent = MS.concretiseString(
-                f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msout=mss-shift/$nameMS.MS msin.datacolumn=CORRECTED_DATA '
+                f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msout=mss-shift/$nameMS.MS msin.datacolumn=CAL_CORRECTED_DATA '
                 f'msin.nchan={nchan_thisms} shift.phasecenter=[{model_centre[0]}deg,{model_centre[1]}deg]')
             logCurrent = MS.concretiseString('$nameMS_initshift.log')
             s.add(cmd=commandCurrent, log=logCurrent, commandType='DP3', )
@@ -349,7 +395,7 @@ if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
     # Add model to MODEL_DATA
     predict_fits_model(MSs_shiftavg, fits_model)
     #####################################################################################################
-    # Get mask
+    # Get mask -> required to blank model for DI calibration
     if not os.path.exists(peelMask):
         logger.info('Create mask...')
         # dummy clean to get image -> mask
@@ -361,25 +407,67 @@ if pointing_distance > 1/3600: # CASE 1 -> model and MS not aligned, peel
         lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=False, blankval=1.)
     ##################################################################################
     # solve+apply scalarphase and fulljones
-    solve_and_apply(MSs_shiftavg, f'c00', sol_factor_f=sol_factor_f)
+    solve_and_apply(MSs_shiftavg, field, sol_factor_f=sol_factor_f)
     # corrupt and subtract with above solutions
-    corrupt_subtract_testimage(MSs_shiftavg, f'c00') # testing...
+    # corrupt_subtract_testimage(MSs_shiftavg, field) # testing...
     ##################################################################################
-    # Predict last selfcal model to MSs_shift
-    with w.if_todo('addcol_model_data'):
-        MSs_shift.addcol('MODEL_DATA', 'DATA', False)
+    # Predict model to MSs_shift
     predict_fits_model(MSs_shift, fits_model, stepname=f'predict_fnal', predict_reg=predictReg)
     # Subtract the model
     corrupt_subtract_testimage(MSs_shift, field) # --> SUBTRACT_DATA
     MSs_subtracted = MSs_shift
-else: #CASE 2: Model and MS are aligned. Solve
-    with w.if_todo('addcol_model_data'):
-        MSs.addcol('MODEL_DATA', 'DATA', False)
-    predict_fits_model(MSs, fits_model, apply_beam=False)
-    solve_and_apply(MSs, field, column_in='CORRECTED_DATA')
-    corrupt_subtract_testimage(MSs, field, column_in='CORRECTED_DATA') # --> SUBTRACTED_DATA
-    MSs_subtracted = MSs
+#### CASE 2: Model and MS are distant. Demix
+elif pointing_distance > 5:
+    logger.info(f'Large separation ({pointing_distance:2f}deg). Demixing using {demix_skymodel} (assuming intrinsic fluxes).')
+    if not os.path.exists(peelMask):
+        logger.info('Create mask...')
+        # dummy clean to get image -> mask
+        lib_util.run_wsclean(s, 'wsclean-mask.log', MSs.getStrWsclean(), niter=0, channel_range='0 1',
+                             no_reorder='', interval='0 10', name='img/mask', scale=pixscale, size=imgsize, nmiter=0)
+        # create peelMask
+        copy2(f'img/mask-dirty.fits', f'{peelMask}')
+        lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=True, blankval=0.)
+        lib_img.blank_image_reg(peelMask, peelReg.filename, inverse=False, blankval=1.)
 
+    sm_combined = lsmtool.load(demix_skymodel)
+    demix_patches = sm_combined.getPatchNames()
+    if not os.path.exists('demix_combined.skydb'):
+        # get a rough field model (no beam applied)
+        os.system(f'wget -O demix_field.skymodel \'http://tgssadr.strw.leidenuniv.nl/cgi-bin/gsmv4.cgi?coord={phasecentre[0]},'
+                  f'{phasecentre[1]}&radius={MSs.getListObj()[0].getFWHM("min") / 2.}&unit=deg&deconv=y\' ')  # This assumes first MS is lowest in freq
+        sm_field = lsmtool.load('demix_field.skymodel', MSs.getListStr()[0])
+        sm_field.remove('I<0.1', applyBeam=True) # remove faint sources
+        sm_field.remove(f'{peelMask} == True')  # This should remove the peel source from the field model.
+        sm_field.group('single', root='field')
+        sm_field.setColValues('LogarithmicSI', ['true']*len(sm_field))
+        sm_combined.concatenate(sm_field)
+        sm_combined.write('demix_combined.skymodel', clobber=True)
+        lib_util.check_rm('demix_combined.skydb')
+        os.system('makesourcedb outtype="blob" format="<" in=demix_combined.skymodel out=demix_combined.skydb')
+        for MS in MSs.getListStr():
+            lib_util.check_rm(MS + '/demix_combined.skydb')
+            logger.debug('Copy: demix_combined.skydb -> ' + MS)
+            copy2('demix_combined.skydb', MS)
+
+    logger.debug(f'Demix sources: {demix_patches}')
+    with w.if_todo('demix'): # Demix CAL_CORRECTED_DATA -> SUBTRACTED_DATA
+        MSs.run(f'DP3 {parset_dir}/DP3-demix.parset msin=$pathMS demixer.skymodel=$pathMS/demix_combined.skydb '
+                f'demixer.instrumentmodel=$pathMS/instrument_demix '
+                f'demixer.subtractsources=\[{",".join(demix_patches)}\]',
+                log='$nameMS_demix.log', commandType='DP3')
+    MSs_subtracted = MSs
+#### CASE 3: Model and MS are aligned. Solve
+else:
+    predict_fits_model(MSs, fits_model, apply_beam=False)
+    solve_and_apply(MSs, field, column_in='CAL_CORRECTED_DATA')
+    ### debug:
+    do_testimage(MSs)
+    corrupt_subtract_testimage(MSs, field, column_in='CAL_CORRECTED_DATA')  # --> SUBTRACTED_DATA
+    MSs_subtracted = MSs
+    # Delete cols again to not waste space
+    MSs.run('taql "ALTER TABLE $pathMS DELETE COLUMN CORRECTED_DATA"',
+            log='$nameMS_taql_delcol.log', commandType='general')
+###################################################################################################################
 ###################################################################################################################
 if not os.path.exists('mss-peel'):
     timeint_init = MSs_subtracted.getListObj()[0].getTimeInt()
@@ -403,17 +491,29 @@ if not os.path.exists('mss-peel'):
                     log=f'{freq_group}MHz-initavg.log', commandType='DP3')
     s.run(check=True)
     os.system("rename.ul .MS .ms mss-peel/*")
-
 MSs_peel = lib_ms.AllMSs(glob.glob('mss-peel/*.ms'), s, check_flags=False)
+
 with w.if_todo('peel-corrbeam'):
-    if pointing_distance > 1/3600:
+    # check if beam needs to be corrected in phase center - assume all MSs have same Beam Keyword.
+    do_corrbeam = True
+    with pt.table(MSs_peel.getListStr()[-1]) as t:
+        phasecentre_rad = np.squeeze(t.FIELD.getcol("PHASE_DIR"))
+        kws = t.getcolkeywords('DATA')
+        try:
+            if kws['LOFAR_APPLIED_BEAM_MODE'] == 'Full':
+                print(kws['LOFAR_APPLIED_BEAM_DIR']['m0'], kws['LOFAR_APPLIED_BEAM_DIR']['m1'], phasecentre_rad)
+                if (kws['LOFAR_APPLIED_BEAM_DIR']['m0']['value'] == phasecentre_rad[0]) and (kws['LOFAR_APPLIED_BEAM_DIR']['m1']['value'] == phasecentre_rad[1]):
+                    do_corrbeam = False
+        except KeyError:
+            logger.warning('Beam Keywords not found.')
+
+    if do_corrbeam:
         logger.info('Correcting beam: DATA -> DATA...')
-        # TODO check beam is corrected for peel direction here
         MSs_peel.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS', log='$nameMS_beam.log', commandType='DP3')
 
 # If distant pointing -> derive and apply new phase-solutions against field model
 if pointing_distance > 1.0:
-    with w.if_todo('init_field_model'):
+    with w.if_todo('get_field_model'):
         os.system(f'wget -O field.skymodel \'http://tgssadr.strw.leidenuniv.nl/cgi-bin/gsmv4.cgi?coord={phasecentre[0]},'
                   f'{phasecentre[1]}&radius={MSs_peel.getListObj()[0].getFWHM("min") / 2.}&unit=deg&deconv=y\' ')  # This assumes first MS is lowest in freq
         lsm = lsmtool.load('field.skymodel', MSs_peel.getListStr()[0])
