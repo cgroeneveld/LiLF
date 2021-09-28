@@ -324,7 +324,7 @@ with w.if_todo('apply'):
             commandType='DP3')
 ### DONE
 
-#################################################################################################
+###################################################
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
@@ -344,7 +344,9 @@ with w.if_todo('flag'):
 with pt.table(MSs.getListObj()[0].pathMS + "/OBSERVATION") as tab:
     field = tab[0]["LOFAR_TARGET"][0]
 
-# Self-cal cycle
+################################################################################################
+################################################################################################
+# Start peeling - Three different cases depending on MS - M87 separation
 sol_factor_f = 1 if pointing_distance < 3 else 2
 if 1/3600 < pointing_distance < 5 : # CASE 1 -> model and MS not aligned, peel
     if not os.path.exists('mss-shift'):
@@ -467,8 +469,10 @@ else:
     # Delete cols again to not waste space
     MSs.run('taql "ALTER TABLE $pathMS DELETE COLUMN CORRECTED_DATA"',
             log='$nameMS_taql_delcol.log', commandType='general')
+
 ###################################################################################################################
 ###################################################################################################################
+
 if not os.path.exists('mss-peel'):
     timeint_init = MSs_subtracted.getListObj()[0].getTimeInt()
     avgtimeint = int(round(t_int / timeint_init))
