@@ -163,7 +163,8 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
         n = len(glob.glob(model_basename + '-[0-9]*-model.fits'))
         logger.info('Predict (wsclean: %s - chan: %i)...' % ('model', n))
         _str = ' -grid-with-beam -use-idg -use-differential-lofar-beam ' if apply_beam else ''
-        s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -use-wgridder -channels-out {n} {_str}'
+        # -use-wgridder
+        s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -channels-out {n} {_str}'
               f'{MSs_object.getStrWsclean()}', log=f'wscleanPRE-{stepname}.log', commandType='wsclean', processors='max')
         s.run(check=True)
 
@@ -467,7 +468,7 @@ else:
     corrupt_subtract_testimage(MSs, field, column_in='CAL_CORRECTED_DATA')  # --> SUBTRACTED_DATA
     MSs_subtracted = MSs
     # Delete cols again to not waste space
-    MSs.run('taql "ALTER TABLE $pathMS DELETE COLUMN CORRECTED_DATA"',
+    MSs.run('taql "ALTER TABLE $pathMS DELETE COLUMN CORRECTED_DATA, CORRUPTED_MODEL_DATA"',
             log='$nameMS_taql_delcol.log', commandType='general')
 
 ###################################################################################################################
