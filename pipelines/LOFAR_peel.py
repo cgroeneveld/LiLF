@@ -305,23 +305,23 @@ with w.if_todo('apply'):
         logger.error("Missing solutions in %s" % cal_dir)
         sys.exit()
 
-    # Apply cal sol - SB.MS:DATA -> SB.MS:CAL_CORRECTED_DATA (polalign corrected)
+    # Apply cal sol - SB.MS:DATA -> SB.MS:CORRECTED_DATA (polalign corrected)
     logger.info('Apply solutions (pa)...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CAL_CORRECTED_DATA \
+    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CORRECTED_DATA \
             cor.parmdb=' + h5_pa + ' cor.correction=polalign', log='$nameMS_cor1.log', commandType='DP3')
 
-    # Apply cal sol - SB.MS:CAL_CORRECTED_DATA -> SB.MS:CAL_CORRECTED_DATA (polalign corrected, calibrator corrected+reweight, beam corrected+reweight)
+    # Apply cal sol - SB.MS:CORRECTED_DATA -> SB.MS:CORRECTED_DATA (polalign corrected, calibrator corrected+reweight, beam corrected+reweight)
     logger.info('Apply solutions (amp/ph)...')
-    MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CAL_CORRECTED_DATA '
-            f'msout.datacolumn=CAL_CORRECTED_DATA cor.steps=[amp,clock] cor.amp.parmdb={h5_amp} '
+    MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+            f'msout.datacolumn=CORRECTED_DATA cor.steps=[amp,clock] cor.amp.parmdb={h5_amp} '
             f'cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True cor.clock.parmdb={h5_iono} '
             f'cor.clock.correction=clockMed000', log='$nameMS_cor2.log',
             commandType='DP3')
 
     # Beam correction CAL_CORRECTED_DATA -> CAL_CORRECTED_DATA (polalign corrected, beam corrected+reweight)
     logger.info('Beam correction...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS msin.datacolumn=CAL_CORRECTED_DATA '
-            'msout.datacolumn=CAL_CORRECTED_DATA corrbeam.updateweights=True', log='$nameMS_beam.log',
+    MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+            'msout.datacolumn=CORRECTED_DATA corrbeam.updateweights=True', log='$nameMS_beam.log',
             commandType='DP3')
 ### DONE
 
@@ -329,7 +329,7 @@ with w.if_todo('apply'):
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
-    MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS ant.baseline=\"{bl2flag}\" msin.datacolumn=CAL_CORRECTED_DATA '
+    MSs.run(f'DP3 {parset_dir}/DP3-flag.parset msin=$pathMS ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
             f'aoflagger.strategy={parset_dir}/HBAdefaultwideband.lua uvmin.uvlambdamin={uvlambdamin}',
             log='$nameMS_flag.log', commandType='DP3')
     logger.info('Remove bad timestamps...')
@@ -366,7 +366,7 @@ if 1/3600 < pointing_distance < 5 : # CASE 1 -> model and MS not aligned, peel
                 logger.warning(f"Skipping {MS.nameMS} (above 168.3MHz)")
                 continue
             commandCurrent = MS.concretiseString(
-                f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msout=mss-shift/$nameMS.MS msin.datacolumn=CAL_CORRECTED_DATA '
+                f'DP3 {parset_dir}/DP3-shift.parset msin=$pathMS msout=mss-shift/$nameMS.MS msin.datacolumn=CORRECTED_DATA '
                 f'msin.nchan={nchan_thisms} shift.phasecenter=[{model_centre[0]}deg,{model_centre[1]}deg]')
             logCurrent = MS.concretiseString('$nameMS_initshift.log')
             s.add(cmd=commandCurrent, log=logCurrent, commandType='DP3', )
@@ -453,7 +453,7 @@ elif pointing_distance > 5:
             copy2('demix_combined.skydb', MS)
 
     logger.debug(f'Demix sources: {demix_patches}')
-    with w.if_todo('demix'): # Demix CAL_CORRECTED_DATA -> SUBTRACTED_DATA
+    with w.if_todo('demix'): # Demix CORRECTED_DATA -> SUBTRACTED_DATA
         MSs.run(f'DP3 {parset_dir}/DP3-demix.parset msin=$pathMS demixer.skymodel=$pathMS/demix_combined.skydb '
                 f'demixer.instrumentmodel=$pathMS/instrument_demix '
                 f'demixer.subtractsources=\[{",".join(demix_patches)}\]',
@@ -462,10 +462,11 @@ elif pointing_distance > 5:
 #### CASE 3: Model and MS are aligned. Solve
 else:
     predict_fits_model(MSs, fits_model, apply_beam=False)
-    solve_and_apply(MSs, field, column_in='CAL_CORRECTED_DATA')
+    solve_and_apply(MSs, field, column_in='CORRECTED_DATA')
     ### debug:
     do_testimage(MSs)
-    corrupt_subtract_testimage(MSs, field, column_in='CAL_CORRECTED_DATA')  # --> SUBTRACTED_DATA
+    sys.exit()
+    corrupt_subtract_testimage(MSs, field, column_in='CORRECTED_DATA')  # --> SUBTRACTED_DATA
     MSs_subtracted = MSs
     # Delete cols again to not waste space
     MSs.run('taql "ALTER TABLE $pathMS DELETE COLUMN CORRECTED_DATA, CORRUPTED_MODEL_DATA"',
