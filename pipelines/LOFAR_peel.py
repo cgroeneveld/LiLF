@@ -54,31 +54,31 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1, column_i
         logger.info('Solving scalarphase...')
         MSs_object.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn={column_in} sol.h5parm=$pathMS/iono.h5 '
                       f'sol.mode=scalarcomplexgain sol.nchan=1 sol.smoothnessconstraint={sol_factor_f * 1e6} sol.solint={sol_factor_t:d} '
-                      f'sol.uvlambdamin={uvlambdamin} sol.modeldatacolumns=[MODEL_DATA]',
+                      f'sol.uvlambdamin={uvlambdamin} sol.usemodelcolumn=True',
                       log=f'$nameMS_sol_iono-{suffix}.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'iono-{suffix}', [ms + '/iono.h5' for ms in MSs_object.getListStr()], \
-                            [   parset_dir + '/losoto-flag.parset',
+                            [#   parset_dir + '/losoto-flag.parset',
                                 parset_dir + '/losoto-plot-scalaramp.parset',
                                 parset_dir + '/losoto-plot-scalarph.parset'])
 
         move(f'cal-iono-{suffix}.h5', 'peel/solutions/')
         move(f'plots-iono-{suffix}', 'peel/plots/')
 
-        # Correct all DATA -> CORRECTED_DATA
+        # Correct all CORRECTED_DATA -> CORRECTED_DATA2
     with w.if_todo(f'cor_iono_{suffix}'):
         logger.info('Scalarphase correction...')
-        MSs_object.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn={column_in} cor.updateweights=False '
-                      f'cor.parmdb=peel/solutions/cal-iono-{suffix}.h5 cor.correction=phase000 cor.direction=[MODEL_DATA]', \
+        MSs_object.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn={column_in} msout.datacolumn=CORRECTED_DATA2 cor.updateweights=False '
+                      f'cor.parmdb=peel/solutions/cal-iono-{suffix}.h5 cor.correction=phase000', \
                       log=f'$nameMS_cor_iono-{suffix}.log', commandType='DP3')
         ### DONE
 
     with w.if_todo(f'solve_fulljones_{suffix}'):
         logger.info('Solving full-Jones...')
-        MSs_object.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+        MSs_object.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA2 '
                       f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=1 sol.solint={sol_factor_t * 128 // t_int:d} '
                       f'sol.smoothnessconstraint={sol_factor_f * 2.0e6} sol.uvlambdamin={uvlambdamin} '
-                      f'sol.modeldatacolumns=[MODEL_DATA]', log=f'$nameMS_sol_fulljones-{suffix}.log',
+                      f'sol.usemodelcolumn=True', log=f'$nameMS_sol_fulljones-{suffix}.log',
                       commandType="DP3")
 
         lib_util.run_losoto(s, f'fulljones-{suffix}', [ms + '/fulljones.h5' for ms in MSs_object.getListStr()], \
@@ -90,7 +90,7 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1, column_i
     with w.if_todo(f'cor_fulljones_{suffix}'):
         logger.info('Full-Jones correction...')
         MSs_object.run(
-            f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS cor.correction=fulljones cor.direction=[MODEL_DATA] '
+            f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS cor.correction=fulljones msin.datacolumn=CORRECTED_DATA2 msout.datacolumn=CORRECTED_DATA2 '
             f'cor.parmdb=peel/solutions/cal-fulljones-{suffix}.h5 cor.soltab=\[amplitude000,phase000\]',
             log=f'$nameMS_cor_gain-{suffix}.log', commandType='DP3')
 
@@ -163,8 +163,8 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
         n = len(glob.glob(model_basename + '-[0-9]*-model.fits'))
         logger.info('Predict (wsclean: %s - chan: %i)...' % ('model', n))
         _str = ' -grid-with-beam -use-idg -use-differential-lofar-beam ' if apply_beam else ''
-        # -use-wgridder
-        s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -channels-out {n} {_str}'
+
+        s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -channels-out {n} {_str} -use-wgridder '
               f'{MSs_object.getStrWsclean()}', log=f'wscleanPRE-{stepname}.log', commandType='wsclean', processors='max')
         s.run(check=True)
 
@@ -466,7 +466,7 @@ else:
     ### debug:
     do_testimage(MSs)
     sys.exit()
-    corrupt_subtract_testimage(MSs, field, column_in='CORRECTED_DATA')  # --> SUBTRACTED_DATA
+    corrupt_subtract_testimage(MSs, field, column_in='CORRECTED_DATA2')  # --> SUBTRACTED_DATA
     MSs_subtracted = MSs
     # Delete cols again to not waste space
     MSs.run('taql "ALTER TABLE $pathMS DELETE COLUMN CORRECTED_DATA, CORRUPTED_MODEL_DATA"',
