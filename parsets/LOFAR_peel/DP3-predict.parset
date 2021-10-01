@@ -9,4 +9,7 @@ steps = [pre]
 
 pre.type = predict
 pre.sourcedb =
+pre.sources =
+pre.usebeammodel = True
+pre.usechannelfreq = False
 pre.beamproximitylimit = 180

@@ -326,6 +326,12 @@ with w.if_todo('apply'):
 ### DONE
 
 ###################################################
+
+with w.if_todo('clip_ateam'):
+    MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
+            f'uvmin.uvlambdamin={uvlambdamin} pre.sourcedb={} pre.sources=[TauA,CasA,CygA]',
+            log='$nameMS_flag.log', commandType='DP3')
+
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
