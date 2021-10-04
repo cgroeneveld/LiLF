@@ -58,7 +58,7 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1, column_i
                       log=f'$nameMS_sol_iono-{suffix}.log', commandType="DP3")
 
         lib_util.run_losoto(s, f'iono-{suffix}', [ms + '/iono.h5' for ms in MSs_object.getListStr()], \
-                            [#   parset_dir + '/losoto-flag.parset',
+                            [   parset_dir + '/losoto-flag.parset',
                                 parset_dir + '/losoto-plot-scalaramp.parset',
                                 parset_dir + '/losoto-plot-scalarph.parset'])
 
@@ -151,9 +151,9 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
     """
     with w.if_todo(stepname):
         # addcol MODEL_DATA if not there
-        with pt.table(MSs_object.getListStr()[0]) as t:
-            if not 'MODEL_DATA' in t.colnames(): # assume true for all
-                MSs_object.addcol('MODEL_DATA', 'DATA', False)
+        # with pt.table(MSs_object.getListStr()[0]) as t:
+        #     if not 'MODEL_DATA' in t.colnames(): # assume true for all
+        #         MSs_object.addcol('MODEL_DATA', 'DATA', False)
         # TODO should copy here not to change original model
         if predict_reg:
             for model_img in glob.glob(model_basename + '*-model.fits'):
@@ -162,50 +162,14 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
         logger.info(f'Using fits model {model_basename}.')
         n = len(glob.glob(model_basename + '-[0-9]*-model.fits'))
         logger.info('Predict (wsclean: %s - chan: %i)...' % ('model', n))
-        _str = ' -grid-with-beam -use-idg -use-differential-lofar-beam ' if apply_beam else ''
-
-        s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -channels-out {n} {_str} -use-wgridder '
+        _str = ' -grid-with-beam -use-idg -use-differential-lofar-beam ' if apply_beam else '' # -use-idg '
+        # -use-wgridder
+        s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -channels-out {n} {_str} '
               f'{MSs_object.getStrWsclean()}', log=f'wscleanPRE-{stepname}.log', commandType='wsclean', processors='max')
         s.run(check=True)
 
-def run_DP3_solve_t_parallel(MSs_files, command, h5parm_prefix, n_timechunk, losoto_parsets):
-    """
-
-    Parameters
-    ----------
-    MSs_files
-    command
-    h5parm_base
-    n_timechunk
-    """
-    s = MSs_files.scheduler
-    if not command[0:3] == 'DP3':
-        raise ValueError(f'Command does not appear to be a DP3 call: {command}')
-    # assert that time ranges are equal
-    for i, ms in enumerate(MSs_files.getListObj()):
-        range_this = ms.getTimeRange()
-        if i > 0 and not range_last == range_this:
-            raise ValueError('timechunk parallelization only implemented for AllMSs objects with same time range.')
-        range_last = range_this
-    # split timesteps according to n_timechunk (roughly equal but not exactly!)
-    timesteps_split = np.array_split(np.arange(MSs_files.getListObj()[0].getNtime()), n_timechunk)
-    logger.info(f"Parallelize {len(timesteps_split)} chunks.")
-    # check command for key msin
-    if 'msin=' not in command:
-        command += f' msin=[{",".join(MSs_files.getListStr())}] '
-    # Iterrate timesteps and add commands du scheduler
-    for i, timesteps in enumerate(timesteps_split):
-        this_h5parm = f'{MSs_files.getListObj()[0].pathDirectory}/{h5parm_prefix}-t{i:02}.h5'
-        this_command = command + f' numthreads={s.max_processors // n_timechunk} msin.starttimeslot={timesteps[0]} ' \
-                                 f'msin.ntimes={len(timesteps)} sol.h5parm={this_h5parm}'
-        s.add(this_command, log=f'{h5parm_prefix}-t{i:02}.log', commandType='DP3')
-    s.run(check=True)
-
-    lib_util.run_losoto(s, h5parm_prefix, [f'{MSs_files.getListObj()[0].pathDirectory}/{h5parm_prefix}-t{i:02}.h5' for i in range(n_timechunk)],
-               losoto_parsets)
-
-def do_testimage(MSs_files):
-    # clean CORRECTED_DATA
+def do_testimage(MSs_files, datacolumn='CORRECTED_DATA2'):
+    # debug image
     imagename = f'img/test-corrected'
 
     wsclean_params = {
@@ -223,6 +187,7 @@ def do_testimage(MSs_files):
         'auto_mask': 3.0,
         'auto_threshold': 1.0,
         'baseline_averaging': 10,
+        'data_column' : datacolumn
     }
     with w.if_todo('imaging_corrected'):
         logger.info(f'Cleaning corrected...')
@@ -318,7 +283,7 @@ with w.if_todo('apply'):
             f'cor.clock.correction=clockMed000', log='$nameMS_cor2.log',
             commandType='DP3')
 
-    # Beam correction CAL_CORRECTED_DATA -> CAL_CORRECTED_DATA (polalign corrected, beam corrected+reweight)
+    # Beam correction CORRECTED_DATA -> CORRECTED_DATA (polalign corrected, beam corrected+reweight)
     logger.info('Beam correction...')
     MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
             'msout.datacolumn=CORRECTED_DATA corrbeam.updateweights=True', log='$nameMS_beam.log',
@@ -328,9 +293,16 @@ with w.if_todo('apply'):
 ###################################################
 
 with w.if_todo('clip_ateam'):
-    MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS ant.baseline=\"{bl2flag}\" msin.datacolumn=CORRECTED_DATA '
-            f'uvmin.uvlambdamin={uvlambdamin} pre.sourcedb={} pre.sources=[TauA,CasA,CygA]',
-            log='$nameMS_flag.log', commandType='DP3')
+    logger.info('Clip A-Team: predict...')
+    clip_model = os.path.dirname(__file__) + '/../models/A-Team_lowres.skydb'
+    MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+            f'pre.sourcedb={clip_model} pre.sources=[TauA,CasA,CygA]',
+            log='$nameMS_pre_clipAteam.log', commandType='DP3')
+
+    logger.info('Clip A-Team: flagging...')
+    MSs.run('Ateamclipper.py $pathMS', log='$nameMS_ateamclipper.log', commandType='python')
+
+    MSs.run('plot_Ateamclipper.py logs/Ateamclipper.txt peel/plots/Ateamclipper.png', log='$nameMS_ateamclipper.log', commandType='python')
 
 # Initial flagging
 with w.if_todo('flag'):
@@ -470,8 +442,7 @@ else:
     predict_fits_model(MSs, fits_model, apply_beam=False)
     solve_and_apply(MSs, field, column_in='CORRECTED_DATA')
     ### debug:
-    do_testimage(MSs)
-    sys.exit()
+    # do_testimage(MSs)
     corrupt_subtract_testimage(MSs, field, column_in='CORRECTED_DATA2')  # --> SUBTRACTED_DATA
     MSs_subtracted = MSs
     # Delete cols again to not waste space
