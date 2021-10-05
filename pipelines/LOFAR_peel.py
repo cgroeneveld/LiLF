@@ -443,7 +443,7 @@ else:
     solve_and_apply(MSs, field, column_in='CORRECTED_DATA')
     ### debug:
     # do_testimage(MSs)
-    corrupt_subtract_testimage(MSs, field, column_in='CORRECTED_DATA2')  # --> SUBTRACTED_DATA
+    corrupt_subtract_testimage(MSs, field, column_in='CORRECTED_DATA')  # --> SUBTRACTED_DATA
     MSs_subtracted = MSs
     # Delete cols again to not waste space
     MSs.run('taql "ALTER TABLE $pathMS DELETE COLUMN CORRECTED_DATA, CORRUPTED_MODEL_DATA"',
@@ -485,7 +485,10 @@ with w.if_todo('peel-corrbeam'):
         try:
             if kws['LOFAR_APPLIED_BEAM_MODE'] == 'Full':
                 print(kws['LOFAR_APPLIED_BEAM_DIR']['m0'], kws['LOFAR_APPLIED_BEAM_DIR']['m1'], phasecentre_rad)
-                if (kws['LOFAR_APPLIED_BEAM_DIR']['m0']['value'] == phasecentre_rad[0]) and (kws['LOFAR_APPLIED_BEAM_DIR']['m1']['value'] == phasecentre_rad[1]):
+                dist = ((kws['LOFAR_APPLIED_BEAM_DIR']['m0']['value'] - phasecentre_rad[0])**2 +
+                        (kws['LOFAR_APPLIED_BEAM_DIR']['m1']['value'] - phasecentre_rad[1])**2)**0.5
+                print(dist)
+                if dist < 1/3600:
                     do_corrbeam = False
         except KeyError:
             logger.warning('Beam Keywords not found.')
