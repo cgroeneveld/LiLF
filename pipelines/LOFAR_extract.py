@@ -69,7 +69,7 @@ with w.if_todo('cleaning'):
         logger.info('Copy MS...')
         os.system('cp -r mss-avg mss-extract')
 
-# region must be a list of ds9 circles and polygons (other shapes can be implemented in lib_util.Rgion_helper()
+# region must be a list of ds9 circles and polygons (other shapes can be implemented in lib_util.Region_helper()
 target_reg = lib_util.Region_helper(target_reg_file)
 center = target_reg.get_center() # center of the extract region
 MSs = lib_ms.AllMSs( glob.glob('mss-extract/*MS'), s )

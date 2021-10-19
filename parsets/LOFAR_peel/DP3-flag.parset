@@ -9,7 +9,7 @@ ant.type = preflagger
 ant.baseline = 
 
 elev.type = preflagger
-elev.elevation = 0deg..25deg
+elev.elevation = 0deg..20deg
 
 uvmin.type = uvwflag
 uvmin.uvlambdamin = 30
