@@ -85,7 +85,6 @@ def main(options):
 opt = optparse.OptionParser()
 opt.add_option('-m','--ms',help='Input MS [no default].',default='')
 opt.add_option('-c','--cols',help='Output column, comma separated if more than one [no default].',default='')
-opt.add_option('-i','--incol',help='Input column to copy in the output column, otherwise it will be set to 0 [default set to 0].',default='')
 opt.add_option('-d','--dysco',help='Enable dysco dataManager for new columns (copied columns always get the same dataManager of the original)',action="store_true",default=False)
 options, arguments = opt.parse_args()
 main(options)

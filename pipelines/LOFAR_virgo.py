@@ -64,7 +64,7 @@ if is_IS:
     freqstep = 2  # might wanna decrease later!
     t_int = 8 # might wanna decrease later!
 else:
-    uvlambdamin = 30
+    uvlambdamin = 100
     t_int = 8
     final_chan_per_sb = 2
 
@@ -131,6 +131,18 @@ with w.if_todo('apply'):
     ### DONE
 
 #################################################################################################
+# # Clip A-Team
+# with w.if_todo('clip_ateam'):
+#     logger.info('Clip A-Team: predict...')
+#     clip_model = os.path.dirname(__file__) + '/../models/A-Team_lowres.skydb'
+#     MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+#             f'pre.sourcedb={clip_model} pre.sources=[TauA,CasA,CygA]',
+#             log='$nameMS_pre_clipAteam.log', commandType='DP3')
+#
+#     logger.info('Clip A-Team: flagging...')
+#     MSs.run('Ateamclipper.py $pathMS', log='$nameMS_ateamclipper.log', commandType='python')
+#     MSs.run('plot_Ateamclipper.py logs/Ateamclipper.txt peel/plots/Ateamclipper.png', log='$nameMS_ateamclipper.log', commandType='python')
+
 # Initial flagging
 with w.if_todo('flag'):
     logger.info('Flagging...')
@@ -170,6 +182,7 @@ if not os.path.exists('mss-avg'):
     s.run(check=True)
 MSs = lib_ms.AllMSs( glob.glob('mss-avg/*.MS'), s, check_flags=False )
 
+
 # Add model to MODEL_DATA
 with w.if_todo('init_model'):
     model = m87_model_hires if is_IS else m87_model
@@ -190,64 +203,78 @@ with w.if_todo('init_model'):
         # logger.info('Predict (DP3: %s - %s))...' % (sourcedb_basename, target))
         # MSs.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.usebeammodel=false pre.sources={target} '
         #         f'pre.sourcedb=$pathMS/{sourcedb_basename}', log='$nameMS_pre.log', commandType='DP3')
-
+with w.if_todo('addcol-residual'):
+    MSs.addcol('RESIDUAL_DATA', 'DATA')
 #####################################################################################################
 # Self-cal cycle
-field_subtracted = False
+# field_subtracted = False
 for c in range(100):
-    if True:
-        with w.if_todo(f'solve_iono_c{c:02}'):
-            logger.info('Solving scalarphase...')
-            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=DATA '
-                    f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.nchan=1 sol.solint=1 sol.smoothnessconstraint=1e6 '
-                    f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_iono-c{c:02}.log', commandType="DP3")
+    with w.if_todo(f'solve_iono_c{c:02}'):
+        logger.info('Solving scalarphase...')
+        MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=DATA '
+                f'sol.h5parm=$pathMS/iono.h5 sol.mode=scalarcomplexgain sol.nchan=1 sol.solint=1 sol.smoothnessconstraint=1e6 '
+                f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_iono-c{c:02}.log', commandType="DP3")
 
-            lib_util.run_losoto(s, f'iono-c{c:02}', [ms + '/iono.h5' for ms in MSs.getListStr()], \
-                                [parset_dir + '/losoto-flag.parset',
-                                 parset_dir + '/losoto-plot-scalaramp.parset',
-                                 parset_dir + '/losoto-plot-scalarph.parset'])
-            move(f'cal-iono-c{c:02}.h5', 'self/solutions/')
-            move(f'plots-iono-c{c:02}', 'self/plots/')
+        lib_util.run_losoto(s, f'iono-c{c:02}', [ms + '/iono.h5' for ms in MSs.getListStr()], \
+                            [parset_dir + '/losoto-flag.parset',
+                             parset_dir + '/losoto-plot-scalaramp.parset',
+                             parset_dir + '/losoto-plot-scalarph.parset'])
+        move(f'cal-iono-c{c:02}.h5', 'self/solutions/')
+        move(f'plots-iono-c{c:02}', 'self/plots/')
 
-        with w.if_todo(f'cor_iono_c{c:02}'):
-            logger.info('Scalarphase correction...')
-            MSs.run(
-                f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CORRECTED_DATA cor.updateweights=False '
-                f'cor.parmdb=self/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000', \
-                log=f'$nameMS_cor_iono.log', commandType='DP3')
-        ### DONE
+    with w.if_todo(f'cor_iono_c{c:02}'):
+        logger.info('Scalarphase correction...')
+        MSs.run(
+            f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CORRECTED_DATA cor.updateweights=False '
+            f'cor.parmdb=self/solutions/cal-iono-c{c:02}.h5 cor.correction=phase000', \
+            log=f'$nameMS_cor_iono.log', commandType='DP3')
+    ### DONE
 
-        with w.if_todo('solve_gain_c%02i' % c):
-            logger.info('Solving full-Jones...')
-            MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA ' # CORRECTED_DATA
-                    f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=4 sol.solint={4*64//t_int} sol.smoothnessconstraint=1.5e6 '
-                    f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
-                    commandType="DP3")
+    with w.if_todo('solve_gain_c%02i' % c):
+        logger.info('Solving full-Jones...')
+        MSs.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA ' 
+                f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=10 sol.solint={8*64//t_int} '# sol.nchan=8 4*64//t_int #sol.smoothnessconstraint=1.5e6 '
+                f'sol.uvlambdamin={uvlambdamin}', log=f'$nameMS_sol_fulljones-c{c}.log',
+                commandType="DP3")
 
-            lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs.getListStr()], \
-                                [parset_dir + '/losoto-fulljones.parset'])
+        lib_util.run_losoto(s, f'fulljones-c{c:02}', [ms + '/fulljones.h5' for ms in MSs.getListStr()], \
+                            [parset_dir + '/losoto-fulljones.parset'])
 
-            move(f'cal-fulljones-c{c:02}.h5', 'self/solutions/')
-            move(f'plots-fulljones-c{c:02}', 'self/plots/')
+        move(f'cal-fulljones-c{c:02}.h5', 'self/solutions/')
+        move(f'plots-fulljones-c{c:02}', 'self/plots/')
 
-        # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
-        with w.if_todo('cor_gain_c%02i' % c):
-            logger.info('Full-Jones correction...')
-            MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-                    f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
-                    f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
+    # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
+    with w.if_todo('cor_gain_c%02i' % c):
+        logger.info('Full-Jones correction...')
+        MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+                f'cor.correction=fulljones cor.parmdb=self/solutions/cal-fulljones-c{c:02}.h5 '
+                f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
+    # clip on residuals
+    with w.if_todo('clip_residuals_c%02i' % c):
+        logger.info('Clipping on RESIDUAL_DATA')
+        # MSs.run('taql "UPDATE $pathMS SET RESIDUAL_DATA = CORRECTED_DATA-MODEL_DATA"', log=f'$nameMS_residual-c{c:02}.log')
+        for MS in MSs.getListObj():
+            with pt.table(MS.pathMS, readonly=False) as t:
+                residuals = t.getcol('RESIDUAL_DATA')
+                flags = t.getcol('FLAG')
+                ant1 = t.getcol('ANTENNA1')
+                ant2 = t.getcol('ANTENNA2')
+                sigma = np.nanstd(residuals[~flags])
+                newflags = (np.abs(residuals) > 5 * sigma) | flags
+                logger.info(f'({MS.nameMS}) Using sigma {sigma:2e}. Flagged data: before {np.sum(flags)/flags.size:.3%}; after {np.sum(newflags)/flags.size:.3%}')
+                t.putcol('FLAG', newflags)
 
     ###################################################################################################################
     # clean CORRECTED_DATA
     imagename = f'img/img-c{c:02}'
 
     wsclean_params = {
-        'scale': f'{0.3/5}arcsec' if is_IS else f'1.5arcsec',
-        'size': 3000 if is_IS else 1600,
+        'scale': f'{0.3/5}arcsec' if is_IS else f'1.0arcsec',
+        'size': 3000 if is_IS else 2400,
         # 'padding': 1.5,
-        'weight': 'briggs -1.0' if is_IS  else'briggs -0.6',
+        'weight': 'briggs -1.0' if is_IS  else'briggs -0.5',
         'join_channels': '',
-        'fit_spectral_pol': 5,
+        # 'fit_spectral_pol': 12,
         'channels_out': len(MSs.getFreqs()) // 48 if is_IS else 12, # len(MSs.getFreqs()) // 24,
         # 'deconvolution_channels': len(MSs.getFreqs()) // 96 if is_IS else len(MSs.getFreqs()) // 48,
         'minuv_l': uvlambdamin,
@@ -255,16 +282,19 @@ for c in range(100):
         'no_update_model_required': '',
         'do_predict': True,
         'use_wgridder': '',
+        # 'use_idg': '',
+        # 'grid_with_beam':'',
+        # 'idg_mode': 'cpu',
+        'no_small_inversion': '',
         'mgain': 0.85,
         'multiscale': '',
-        'save_source_list': '',
-        'auto_mask': 3.0,
-        'auto_threshold': 0.8,
+        # 'save_source_list': '',
+        # 'auto_mask': 3.0,
+        'auto_threshold': 0.5,
         'baseline_averaging': 6,
     }
     with w.if_todo('imaging_c%02i' % c):
         logger.info(f'Cleaning (cycle: {c}; size: {wsclean_params["size"]}pix scale: {wsclean_params["scale"]})...')
-
         if not os.path.exists(basemask) or not os.path.exists(basemaskC):
             logger.info('Create masks...')
             # dummy clean to get image -> mask
@@ -285,7 +315,7 @@ for c in range(100):
         if not is_IS:
             logger.info('Cleaning...')
             lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, padding=1.6, multiscale_convolution_padding=1.2,
-                                 multiscale_scales='0,20,40,80,160,320', fits_mask=basemask, **wsclean_params)
+                                 multiscale_scales='0,20,40,80,160', fits_mask=basemask, **wsclean_params) #320
             os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
         else: # International LOFAR Telescope
             logger.info('Cleaning...')

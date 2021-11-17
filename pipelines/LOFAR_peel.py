@@ -12,7 +12,7 @@ from shutil import copy2, copytree, move
 import numpy as np
 import astropy.io.fits as fits
 import casacore.tables as pt
-import lsmtool
+import lsmtool as lsm
 
 from LiLF import lib_ms, lib_img, lib_util, lib_log
 #############################################################################
@@ -27,7 +27,7 @@ cal_dir = parset.get('LOFAR_peel','cal_dir')
 data_dir = parset.get('LOFAR_peel','data_dir')
 peelReg = parset.get('LOFAR_peel','peelReg')  # default peel.reg
 predictReg = parset.get('LOFAR_peel','predictReg')  # default None
-demix_skymodel = parset.get('LOFAR_peel','demix_skymodel')
+sourcedb = parset.get('model','sourcedb')
 fits_model = parset.get('model','fits_model')
 bl2flag = parset.get('flag','stations')
 
@@ -86,7 +86,7 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1, column_i
         move(f'cal-fulljones-{suffix}.h5', 'peel/solutions/')
         move(f'plots-fulljones-{suffix}', 'peel/plots/')
 
-        # Correct gain amp and ph CORRECTED_DATA -> CORRECTED_DATA
+        # Correct gain amp and ph CORRECTED_DATA2 -> CORRECTED_DATA2
     with w.if_todo(f'cor_fulljones_{suffix}'):
         logger.info('Full-Jones correction...')
         MSs_object.run(
@@ -168,6 +168,26 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
               f'{MSs_object.getStrWsclean()}', log=f'wscleanPRE-{stepname}.log', commandType='wsclean', processors='max')
         s.run(check=True)
 
+
+def predict_sourcedb_model(MSs_object, stepname='init_model', apply_beam=True):
+    """
+    Predict a sky model into one or more MS files.
+    Parameters
+    ----------
+    MSs_object: object, All_MSs object
+    stepname : str, name of step in walker
+    apply_beam : bool, default = True. Apply beam corruption during predict?
+    """
+    with w.if_todo(stepname):
+        lib_util.check_rm('peel.skydb')
+        os.system('makesourcedb outtype="blob" format="<" in=peel.skymodel out=peel.skydb')
+        for MS in MSs_object.getListStr():
+            lib_util.check_rm(MS + '/peel.skydb')
+            logger.debug('Copy: peel.skydb -> ' + MS)
+            copy2('peel.skydb', MS)
+        MSs_object.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.sourcedb=$pathMS/peel.skydb pre.usebeammodel={apply_beam}',
+                log='$nameMS_predict.log', commandType='DP3')
+
 def do_testimage(MSs_files, datacolumn='CORRECTED_DATA2'):
     # debug image
     imagename = f'img/test-corrected'
@@ -235,9 +255,20 @@ peelMask = 'peel/masks/peelmask.fits'
 phasecentre = MSs.getListObj()[0].getPhaseCentre()
 # region must be a list of ds9 circles and polygons (other shapes can be implemented in lib_util.Rgion_helper()
 peelReg = lib_util.Region_helper(peelReg)
-assert os.path.isfile(fits_model + '-0000-model.fits')
-model_hdr = fits.open(glob.glob(fits_model + '-[0-9]*-model.fits')[0])[0].header
-model_centre = np.array([model_hdr['CRVAL1'], model_hdr['CRVAL2']])
+# get Pointing centre from either fits model or sourcedb
+if fits_model != '':
+    assert os.path.isfile(fits_model + '-0000-model.fits')
+    model_hdr = fits.open(glob.glob(fits_model + '-[0-9]*-model.fits')[0])[0].header
+    model_centre = np.array([model_hdr['CRVAL1'], model_hdr['CRVAL2']])
+elif sourcedb != '':
+    skymodel = lsm.load(sourcedb)
+    skymodel.group('single', method='wmean')
+    patch_pos = skymodel.getPatchPositions()['Patch']
+    skymodel.write('peel.skymodel', clobber=True)
+    model_centre = np.array([patch_pos[0].value, patch_pos[1].value])
+else:
+    raise ValueError('Please provide either fits_model or sourcedb in the lilf.config [model] section.')
+
 pointing_distance = lib_util.distanceOnSphere(*model_centre, *phasecentre)
 logger.info(f"Distance between model and MS phase centre: {pointing_distance:.5f}deg")
 ##################################################
@@ -272,21 +303,23 @@ with w.if_todo('apply'):
 
     # Apply cal sol - SB.MS:DATA -> SB.MS:CORRECTED_DATA (polalign corrected)
     logger.info('Apply solutions (pa)...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CORRECTED_DATA \
-            cor.parmdb=' + h5_pa + ' cor.correction=polalign', log='$nameMS_cor1.log', commandType='DP3')
+    MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CORRECTED_DATA '
+            f'msout.storagemanager=dysco cor.parmdb={h5_pa} cor.correction=polalign',
+            log='$nameMS_cor1.log', commandType='DP3')
 
     # Apply cal sol - SB.MS:CORRECTED_DATA -> SB.MS:CORRECTED_DATA (polalign corrected, calibrator corrected+reweight, beam corrected+reweight)
     logger.info('Apply solutions (amp/ph)...')
     MSs.run(f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-            f'msout.datacolumn=CORRECTED_DATA cor.steps=[amp,clock] cor.amp.parmdb={h5_amp} '
-            f'cor.amp.correction=amplitudeSmooth cor.amp.updateweights=True cor.clock.parmdb={h5_iono} '
-            f'cor.clock.correction=clockMed000', log='$nameMS_cor2.log',
-            commandType='DP3')
+            f'msout.datacolumn=CORRECTED_DATA msout.storagemanager=dysco '
+            f'cor.steps=[amp,clock] cor.amp.parmdb={h5_amp} cor.amp.correction=amplitudeSmooth '
+            f'cor.amp.updateweights=True cor.clock.parmdb={h5_iono} cor.clock.correction=clockMed000',
+            log='$nameMS_cor2.log', commandType='DP3')
 
     # Beam correction CORRECTED_DATA -> CORRECTED_DATA (polalign corrected, beam corrected+reweight)
     logger.info('Beam correction...')
-    MSs.run('DP3 ' + parset_dir + '/DP3-beam.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
-            'msout.datacolumn=CORRECTED_DATA corrbeam.updateweights=True', log='$nameMS_beam.log',
+    MSs.run(f'DP3 {parset_dir}/DP3-beam.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA '
+            f'msout.datacolumn=CORRECTED_DATA  msout.storagemanager=dysco '
+            f'corrbeam.updateweights=True', log='$nameMS_beam.log',
             commandType='DP3')
 ### DONE
 
@@ -366,7 +399,7 @@ if 1/3600 < pointing_distance: # CASE 1 -> model and MS not aligned, peel
         lib_util.check_rm('mss-shiftavg')
         os.makedirs('mss-shiftavg')
         # Average all MSs to one single MS (so that we can average to less than 1 chan/SB)
-        logger.info(f'Averaging {timeint}s -> {t_avg_factor*timeint}s; {nchan_shift}chan -> {nchan_shiftavg}chan')
+        logger.info(f'Averaging {timeint:.2f}s -> {t_avg_factor*timeint:.2f}s; {nchan_shift}chan -> {nchan_shiftavg}chan')
         s.add(f'DP3 {parset_dir}/DP3-avg.parset msin=[{",".join(MSs_shift.getListStr())}] msin.datacolumn=DATA '
               f'msout=mss-shiftavg/{name_msavg} avg.timestep={t_avg_factor} avg.freqstep={f_avg_factor} numthreads={s.max_processors}',
               log=f'create-shiftavg.log', commandType='DP3')
@@ -374,9 +407,12 @@ if 1/3600 < pointing_distance: # CASE 1 -> model and MS not aligned, peel
     MSs_shiftavg = lib_ms.AllMSs(glob.glob(f'mss-shiftavg/{name_msavg}'), s, check_flags=False )
 
     # Add model to MODEL_DATA
-    predict_fits_model(MSs_shiftavg, fits_model)
+    if fits_model != '':
+        predict_fits_model(MSs_shiftavg, fits_model)
+    else:
+        predict_sourcedb_model(MSs_shiftavg)
     #####################################################################################################
-    # Get mask -> required to blank model for DI calibration
+    # Get mask -> required to blank model for DI calibration later on
     if not os.path.exists(peelMask):
         logger.info('Create mask...')
         # dummy clean to get image -> mask
@@ -389,11 +425,15 @@ if 1/3600 < pointing_distance: # CASE 1 -> model and MS not aligned, peel
     ##################################################################################
     # solve+apply scalarphase and fulljones
     solve_and_apply(MSs_shiftavg, field, sol_factor_f=sol_factor_f)
+    # do_testimage(MSs_shiftavg)
     # corrupt and subtract with above solutions
     # corrupt_subtract_testimage(MSs_shiftavg, field) # testing...
     ##################################################################################
     # Predict model to MSs_shift
-    predict_fits_model(MSs_shift, fits_model, stepname=f'predict_fnal', predict_reg=predictReg)
+    if fits_model != '':
+        predict_fits_model(MSs_shift, fits_model, stepname='predict_fnal', predict_reg=predictReg)
+    else:
+        predict_sourcedb_model(MSs_shift, stepname='predict_fnal')
     # Subtract the model
     corrupt_subtract_testimage(MSs_shift, field) # --> SUBTRACT_DATA
     MSs_subtracted = MSs_shift
@@ -439,7 +479,10 @@ if 1/3600 < pointing_distance: # CASE 1 -> model and MS not aligned, peel
 #     MSs_subtracted = MSs
 #### CASE 2: Model and MS are aligned. Solve
 else:
-    predict_fits_model(MSs, fits_model, apply_beam=False)
+    if fits_model != '':
+        predict_fits_model(MSs, fits_model, apply_beam=False)
+    else:
+        predict_sourcedb_model(MSs)
     solve_and_apply(MSs, field, column_in='CORRECTED_DATA')
     # delete
     # TODO if col exists

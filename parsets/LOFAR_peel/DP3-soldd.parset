@@ -10,6 +10,6 @@ sol.h5parm =
 sol.uvlambdamin =
 sol.maxiter = 300
 sol.tolerance = 1e-5
-sol.propagatesolutions = True
+sol.propagatesolutions = False # test no propagate
 sol.flagunconverged = False
 sol.flagdivergedonly = True

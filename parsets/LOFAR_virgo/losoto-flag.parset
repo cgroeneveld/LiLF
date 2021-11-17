@@ -32,13 +32,13 @@ mode = smooth
 operation = CLIP
 soltab = sol000/amplitude000
 mode = below
-clipLevel = 0.25
+clipLevel = 0.2
 
 [clip2]
 operation = CLIP
 soltab = sol000/amplitude000
 mode = above
-clipLevel = 4.0
+clipLevel = 5.0
 
 [flagextend]
 operation = FLAGEXTEND

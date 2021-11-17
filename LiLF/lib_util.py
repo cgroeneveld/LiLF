@@ -1,4 +1,5 @@
 import os, sys, re, time, pickle, random, shutil, glob
+import socket
 
 from casacore import tables
 import numpy as np
@@ -93,7 +94,6 @@ def getParset(parsetFile='../lilf.config'):
     add_default('LOFAR_peel', 'predictReg', '')
     add_default('LOFAR_peel', 'cal_dir', '')
     add_default('LOFAR_peel', 'data_dir', './')
-    add_default('LOFAR_peel', 'demix_skymodel', 'demix.skymodel')
     ### uGMRT ###
 
     # init
@@ -320,7 +320,7 @@ def run_wsclean(s, logfile, MSs_files, do_predict=False, **kwargs):
     # basic parms
     wsc_parms.append( '-j '+str(s.max_processors)+' -reorder -parallel-reordering 4 ' )
     if 'use_idg' in kwargs.keys():
-        if s.get_cluster() == 'Hamburg_fat':
+        if s.get_cluster() == 'Hamburg_fat' and socket.gethostname() in ['node31', 'node32', 'node33', 'node34', 'node35']:
             wsc_parms.append( '-idg-mode hybrid' )
             wsc_parms.append( '-mem 10' )
         else:
@@ -580,7 +580,6 @@ class Scheduler():
         """
         Find in which computing cluster the pipeline is running
         """
-        import socket
         hostname = socket.gethostname()
         if (hostname == 'lgc1' or hostname == 'lgc2'):
             return "Hamburg"
