@@ -272,7 +272,7 @@ for c in range(100):
         'scale': f'{0.3/5}arcsec' if is_IS else f'1.0arcsec',
         'size': 3000 if is_IS else 2400,
         # 'padding': 1.5,
-        'weight': 'briggs -1.0' if is_IS  else'briggs -0.5',
+        'weight': 'briggs -1.0' if is_IS  else'briggs -1.0',
         'join_channels': '',
         # 'fit_spectral_pol': 12,
         'channels_out': len(MSs.getFreqs()) // 48 if is_IS else 12, # len(MSs.getFreqs()) // 24,
@@ -314,8 +314,8 @@ for c in range(100):
 
         if not is_IS:
             logger.info('Cleaning...')
-            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, padding=1.6, multiscale_convolution_padding=1.2,
-                                 multiscale_scales='0,20,40,80,160', fits_mask=basemask, **wsclean_params) #320
+            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, padding=1.6,
+                                 multiscale_scales='0,4,7,15,25,40,70,120,200,320', fits_mask=basemask, **wsclean_params)
             os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
         else: # International LOFAR Telescope
             logger.info('Cleaning...')

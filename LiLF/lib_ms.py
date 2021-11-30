@@ -199,7 +199,6 @@ class MS(object):
         nameMS:        name of the MS, without parent directories and extension (which is assumed to be ".MS" always)
         """
         self.setPathVariables(pathMS)
-
         # If the field name is not a recognised calibrator name, one of two scenarios is true:
         # 1. The field is not a calibrator field;
         # 2. The field is a calibrator field, but the name was not properly set.
