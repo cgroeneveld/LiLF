@@ -57,7 +57,7 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1, column_i
                       f'sol.uvlambdamin={uvlambdamin} sol.usemodelcolumn=True',
                       log=f'$nameMS_sol_iono-{suffix}.log', commandType="DP3")
 
-        if c < 2:
+        if c < 3:
             lib_util.run_losoto(s, f'iono-{suffix}', [ms + '/iono.h5' for ms in MSs_object.getListStr()], \
                                 [   parset_dir + '/losoto-plot-scalaramp.parset',
                                     parset_dir + '/losoto-plot-scalarph.parset'])
@@ -77,27 +77,27 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1, column_i
                       f'cor.parmdb=peel/solutions/cal-iono-{suffix}.h5 cor.correction=phase000', \
                       log=f'$nameMS_cor_iono-{suffix}.log', commandType='DP3')
         ### DONE
+    if c > 4:
+        with w.if_todo(f'solve_fulljones_{suffix}'):
+            logger.info('Solving full-Jones...')
+            MSs_object.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA2 '
+                          f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=1 sol.solint={sol_factor_t * 128 // t_int:d} '
+                          f'sol.smoothnessconstraint={sol_factor_f * 2.0e6} sol.uvlambdamin={uvlambdamin} '
+                          f'sol.usemodelcolumn=True', log=f'$nameMS_sol_fulljones-{suffix}.log',
+                          commandType="DP3")
 
-    with w.if_todo(f'solve_fulljones_{suffix}'):
-        logger.info('Solving full-Jones...')
-        MSs_object.run(f'DP3 {parset_dir}/DP3-soldd.parset msin=$pathMS msin.datacolumn=CORRECTED_DATA2 '
-                      f'sol.h5parm=$pathMS/fulljones.h5 sol.mode=fulljones sol.nchan=1 sol.solint={sol_factor_t * 128 // t_int:d} '
-                      f'sol.smoothnessconstraint={sol_factor_f * 2.0e6} sol.uvlambdamin={uvlambdamin} '
-                      f'sol.usemodelcolumn=True', log=f'$nameMS_sol_fulljones-{suffix}.log',
-                      commandType="DP3")
+            lib_util.run_losoto(s, f'fulljones-{suffix}', [ms + '/fulljones.h5' for ms in MSs_object.getListStr()], \
+                                [  parset_dir + '/losoto-plot-fulljones.parset'])
+            move(f'cal-fulljones-{suffix}.h5', 'peel/solutions/')
+            move(f'plots-fulljones-{suffix}', 'peel/plots/')
 
-        lib_util.run_losoto(s, f'fulljones-{suffix}', [ms + '/fulljones.h5' for ms in MSs_object.getListStr()], \
-                            [  parset_dir + '/losoto-plot-fulljones.parset'])
-        move(f'cal-fulljones-{suffix}.h5', 'peel/solutions/')
-        move(f'plots-fulljones-{suffix}', 'peel/plots/')
-
-        # Correct gain amp and ph CORRECTED_DATA2 -> CORRECTED_DATA2
-    with w.if_todo(f'cor_fulljones_{suffix}'):
-        logger.info('Full-Jones correction...')
-        MSs_object.run(
-            f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS cor.correction=fulljones msin.datacolumn=CORRECTED_DATA2 msout.datacolumn=CORRECTED_DATA2 '
-            f'cor.parmdb=peel/solutions/cal-fulljones-{suffix}.h5 cor.soltab=\[amplitude000,phase000\]',
-            log=f'$nameMS_cor_gain-{suffix}.log', commandType='DP3')
+            # Correct gain amp and ph CORRECTED_DATA2 -> CORRECTED_DATA2
+        with w.if_todo(f'cor_fulljones_{suffix}'):
+            logger.info('Full-Jones correction...')
+            MSs_object.run(
+                f'DP3 {parset_dir}/DP3-cor.parset msin=$pathMS cor.correction=fulljones msin.datacolumn=CORRECTED_DATA2 msout.datacolumn=CORRECTED_DATA2 '
+                f'cor.parmdb=peel/solutions/cal-fulljones-{suffix}.h5 cor.soltab=\[amplitude000,phase000\]',
+                log=f'$nameMS_cor_gain-{suffix}.log', commandType='DP3')
 
 def corrupt_subtract_testimage(MSs_object, suffix, sol_suffix=None, column_in='DATA'):
     """
@@ -192,13 +192,13 @@ def predict_sourcedb_model(MSs_object, stepname='init_model', apply_beam=True):
         MSs_object.run(f'DP3 {parset_dir}/DP3-predict.parset msin=$pathMS pre.sourcedb=$pathMS/peel.skydb pre.usebeammodel={apply_beam}',
                 log='$nameMS_predict.log', commandType='DP3')
 
-def do_testimage(MSs_files, datacolumn='CORRECTED_DATA2', imagename='test-corrected', update_model=False):
+def do_testimage(MSs_files, datacolumn='CORRECTED_DATA2', image_suffix='test-corrected', update_model=False):
     # debug image
-    imagename = 'img/' + imagename
+    imagename = 'img/' + image_suffix
 
     wsclean_params = {
         'scale': f'1.5arcsec',
-        'size': 600,
+        'size': 1200,
         'weight': 'briggs -0.5',
         'join_channels': '',
         'fit_spectral_pol': 3,
@@ -210,15 +210,13 @@ def do_testimage(MSs_files, datacolumn='CORRECTED_DATA2', imagename='test-correc
         'auto_mask': 3.0,
         'auto_threshold': 1.0,
         'baseline_averaging': 10,
+        'no_update_model_required': '',
         'data_column' : datacolumn
     }
     if update_model:
-        wsclean_params['update_model_required'] = ''
-    else:
-        wsclean_params['no_update_model_required'] = ''
+        wsclean_params['do_predict'] = True
 
-    with w.if_todo(f'imaging_{imagename}'):
-        logger.info(f'Cleaning corrected...')
+    with w.if_todo(f'imaging_{image_suffix}'):
         basemask = 'img/mask-corrected'
         if not os.path.exists(basemask):
             logger.info('Create masks...')
@@ -230,10 +228,10 @@ def do_testimage(MSs_files, datacolumn='CORRECTED_DATA2', imagename='test-correc
             copy2(f'{imagename}-image.fits', f'{basemask}')
             lib_img.blank_image_reg(basemask, peelReg.filename, inverse=True, blankval=0.)
             lib_img.blank_image_reg(basemask, peelReg.filename, inverse=False, blankval=1.)
-            logger.info('Cleaning corrected...')
-            lib_util.run_wsclean(s, f'wsclean-corrected.log', MSs_files.getStrWsclean(), niter=1000000,
-                                 multiscale_scales='0,20,40,80,160,320', fits_mask=basemask, **wsclean_params)
-            os.system(f'cat logs/wsclean-corrected.log | grep "background noise"')
+        logger.info('Cleaning corrected...')
+        lib_util.run_wsclean(s, f'wsclean-corrected.log', MSs_files.getStrWsclean(), niter=1000000,
+                             multiscale_scales='0,20,40,80,160,320', fits_mask=basemask, **wsclean_params)
+        os.system(f'cat logs/wsclean-corrected.log | grep "background noise"')
 
 #############################################################################
 # Clear

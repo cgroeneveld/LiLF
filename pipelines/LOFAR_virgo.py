@@ -282,11 +282,12 @@ for c in range(100):
         'no_update_model_required': '',
         'do_predict': True,
         'use_wgridder': '',
+        'wgridder_accuracy': 1e05,
         # 'use_idg': '',
         # 'grid_with_beam':'',
         # 'idg_mode': 'cpu',
         'no_small_inversion': '',
-        'mgain': 0.85,
+        'mgain': 0.75,
         'multiscale': '',
         # 'save_source_list': '',
         # 'auto_mask': 3.0,
@@ -314,8 +315,8 @@ for c in range(100):
 
         if not is_IS:
             logger.info('Cleaning...')
-            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, padding=1.6,
-                                 multiscale_scales='0,4,7,15,25,40,70,120,200,320', fits_mask=basemask, **wsclean_params)
+            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000,
+                                 multiscale_scales='0,10,17,30,50,80,140,200,340', fits_mask=basemask, **wsclean_params)
             os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
         else: # International LOFAR Telescope
             logger.info('Cleaning...')
