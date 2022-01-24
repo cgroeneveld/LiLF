@@ -60,9 +60,10 @@ is_IS = False
 if MSs.resolution < 2.0:
     is_IS = True
 if is_IS:
-    uvlambdamin = 3000
+    uvlambdamin = 100
     freqstep = 2  # might wanna decrease later!
     t_int = 8 # might wanna decrease later!
+    final_chan_per_sb = 9999
 else:
     uvlambdamin = 100
     t_int = 8
@@ -251,43 +252,43 @@ for c in range(100):
                 f'cor.soltab=\[amplitude000,phase000\]', log=f'$nameMS_cor_gain-c{c:02}.log', commandType='DP3')
     # clip on residuals
     with w.if_todo('clip_residuals_c%02i' % c):
-        logger.info('Clipping on RESIDUAL_DATA')
+        logger.info('Not clipping on RESIDUAL_DATA')
         # MSs.run('taql "UPDATE $pathMS SET RESIDUAL_DATA = CORRECTED_DATA-MODEL_DATA"', log=f'$nameMS_residual-c{c:02}.log')
-        for MS in MSs.getListObj():
-            with pt.table(MS.pathMS, readonly=False) as t:
-                residuals = t.getcol('RESIDUAL_DATA')
-                flags = t.getcol('FLAG')
-                ant1 = t.getcol('ANTENNA1')
-                ant2 = t.getcol('ANTENNA2')
-                sigma = np.nanstd(residuals[~flags])
-                newflags = (np.abs(residuals) > 5 * sigma) | flags
-                logger.info(f'({MS.nameMS}) Using sigma {sigma:2e}. Flagged data: before {np.sum(flags)/flags.size:.3%}; after {np.sum(newflags)/flags.size:.3%}')
-                t.putcol('FLAG', newflags)
+        # for MS in MSs.getListObj():
+        #     with pt.table(MS.pathMS, readonly=False) as t:
+        #         residuals = t.getcol('RESIDUAL_DATA')
+        #         flags = t.getcol('FLAG')
+        #         ant1 = t.getcol('ANTENNA1')
+        #         ant2 = t.getcol('ANTENNA2')
+        #         sigma = np.nanstd(residuals[~flags])
+        #         newflags = (np.abs(residuals) > 5 * sigma) | flags
+        #         logger.info(f'({MS.nameMS}) Using sigma {sigma:2e}. Flagged data: before {np.sum(flags)/flags.size:.3%}; after {np.sum(newflags)/flags.size:.3%}')
+        #         t.putcol('FLAG', newflags)
 
     ###################################################################################################################
     # clean CORRECTED_DATA
     imagename = f'img/img-c{c:02}'
 
     wsclean_params = {
-        'scale': f'{0.3/5}arcsec' if is_IS else f'1.0arcsec',
-        'size': 3000 if is_IS else 2400,
+        'scale': '0.2arcsec' if is_IS else '1.0arcsec',
+        'size': 6000 if is_IS else 2400,
         # 'padding': 1.5,
-        'weight': 'briggs -1.0' if is_IS  else'briggs -1.0',
+        'weight': 'briggs -0.6' if is_IS  else'briggs -1.0',
         'join_channels': '',
         # 'fit_spectral_pol': 12,
-        'channels_out': len(MSs.getFreqs()) // 48 if is_IS else 12, # len(MSs.getFreqs()) // 24,
+        'channels_out':  12, # len(MSs.getFreqs()) // 24,
         # 'deconvolution_channels': len(MSs.getFreqs()) // 96 if is_IS else len(MSs.getFreqs()) // 48,
         'minuv_l': uvlambdamin,
         'name': imagename,
         'no_update_model_required': '',
         'do_predict': True,
         'use_wgridder': '',
-        'wgridder_accuracy': 1e05,
+        'wgridder_accuracy': 1e-04 if is_IS else 1e-05,
         # 'use_idg': '',
         # 'grid_with_beam':'',
         # 'idg_mode': 'cpu',
-        'no_small_inversion': '',
-        'mgain': 0.75,
+        # 'no_small_inversion': '',
+        'mgain': 0.8,
         'multiscale': '',
         # 'save_source_list': '',
         # 'auto_mask': 3.0,
@@ -321,10 +322,10 @@ for c in range(100):
         else: # International LOFAR Telescope
             logger.info('Cleaning...')
             wsclean_params['mgain'] = 0.7
-            wsclean_params['gain'] = 0.08
-            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000, fits_mask=basemaskC,
-                                 multiscale_scales='0,4,7,10,20,40,80,160',
-                                  **wsclean_params)
+            wsclean_params['gain'] = 0.09
+            lib_util.run_wsclean(s, f'wsclean-c{c}.log', MSs.getStrWsclean(), niter=1000000,
+                                 auto_mask= 3.0, fits_mask=basemask, multiscale_scales='0,10,20,40,80,160,320', mem=95,
+                                 taper_gaussian='0.8asec', **wsclean_params)
             os.system(f'cat logs/wsclean-c{c}.log | grep "background noise"')
 
 

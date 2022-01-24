@@ -97,6 +97,8 @@ def solve_and_apply(MSs_object, suffix, sol_factor_t=1, sol_factor_f=1, column_i
 def corrupt_subtract_testimage(MSs_object, suffix, sol_suffix=None, column_in='DATA'):
     """
     Use solutions of a suffix to corrupt and subtract MODEL_DATA, also create an empty test image.
+    (NOTE: for field_8, predict 2 directions, solve 2 dir (also for 3c270), then use MODEL_DATA and m87 sols.
+    Solved scalar phase and diagonal, use only diagonal amps for subtraction.)
     Parameters
     ----------
     MSs_object
@@ -134,10 +136,9 @@ def corrupt_subtract_testimage(MSs_object, suffix, sol_suffix=None, column_in='D
     with w.if_todo(f'test-image-empty-{suffix}'):
         logger.info('Test empty... (SUBTRACTED_DATA)')
         lib_util.run_wsclean(s, f'wsclean-peel.log', MSs_object.getStrWsclean(), weight='briggs -0.5',
-                             data_column='SUBTRACTED_DATA',
+                             data_column='SUBTRACTED_DATA', channels_out=3,
                              name='img/test-empty-' + suffix, scale='2.0arcsec', size=2000, niter=0, nmiter=0,
-                             no_update_model_required='',
-                             minuv_l=uvlambdamin)
+                             no_update_model_required='', minuv_l=uvlambdamin)
 
 def predict_fits_model(MSs_object, model_basename, stepname='init_model', predict_reg=None, apply_beam=True):
     """
@@ -167,7 +168,6 @@ def predict_fits_model(MSs_object, model_basename, stepname='init_model', predic
         s.add(f'wsclean -predict  -name {model_basename}  -j {s.max_processors} -channels-out {n} {_str} '
               f'{MSs_object.getStrWsclean()}', log=f'wscleanPRE-{stepname}.log', commandType='wsclean', processors='max')
         s.run(check=True)
-
 
 def predict_sourcedb_model(MSs_object, stepname='init_model', apply_beam=True):
     """
