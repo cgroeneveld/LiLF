@@ -26,7 +26,7 @@ def getParset(parsetFile=''):
     """
     def add_default(section, option, val):
         if not config.has_option(section, option): config.set(section, option, val)
-    
+
     if parsetFile is '' and os.path.exists('lilf.config'): parsetFile='lilf.config'
     if parsetFile is '' and os.path.exists('../lilf.config'): parsetFile='../lilf.config'
 
@@ -80,8 +80,9 @@ def getParset(parsetFile=''):
     # dd
     add_default('LOFAR_dd', 'maxIter', '2')
     add_default('LOFAR_dd', 'minCalFlux60', '1')
-    add_default('LOFAR_dd', 'removeExtendedCutoff', '0.0005')
     add_default('LOFAR_dd', 'target_dir', '') # ra,dec
+    add_default('LOFAR_dd', 'manual_dd_cal', '')
+    add_default('LOFAR_dd', 'solve_tec', 'False') # per default, solve each dd for scalarphase. if solve_tec==True, solve for TEC instead.
     # extract
     add_default('LOFAR_extract', 'maxniter', '10')
     add_default('LOFAR_extract', 'extractRegion', 'target.reg')

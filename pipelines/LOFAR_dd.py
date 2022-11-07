@@ -10,6 +10,9 @@ import numpy as np
 from astropy.table import Table as astrotab
 from astropy.coordinates import SkyCoord
 from astropy import units as u
+from astropy.io import fits
+from astropy.wcs import WCS
+import regions
 import pyrap.tables as pt
 import lsmtool
 
@@ -27,8 +30,12 @@ parset_dir = parset.get('LOFAR_dd','parset_dir')
 userReg = parset.get('model','userReg')
 maxIter = parset.getint('LOFAR_dd','maxIter')
 min_cal_flux60 = parset.getfloat('LOFAR_dd','minCalFlux60')
-removeExtendedCutoff = parset.getfloat('LOFAR_dd','removeExtendedCutoff')
 target_dir = parset.get('LOFAR_dd','target_dir')
+manual_dd_cal = parset.get('LOFAR_dd','manual_dd_cal')
+solve_tec = parset.getboolean('LOFAR_dd','solve_tec')
+
+iono_soltype = 'tec' if solve_tec else 'ph'
+iono_soltab =  'tec000' if solve_tec else 'phase000'
 
 def clean(p, MSs, res='normal', size=[1,1], empty=False, imagereg=None):
     """
@@ -105,7 +112,7 @@ def clean(p, MSs, res='normal', size=[1,1], empty=False, imagereg=None):
                 size=imsize, save_source_list='', scale=str(pixscale)+'arcsec', reuse_psf=imagename, reuse_dirty=imagename,
                 weight=weight, niter=100000, no_update_model_required='', minuv_l=30, maxuv_l=maxuv_l, mgain=0.85,
                 multiscale='', multiscale_scale_bias=0.7, multiscale_scales='0,10,20,40,80', 
-                baseline_averaging='', local_rms='', auto_threshold=0.75, auto_mask=1.5, fits_mask=im.maskname,
+                baseline_averaging='', auto_threshold=0.75, auto_mask=1.5, fits_mask=im.maskname,
                 join_channels='', fit_spectral_pol=3, channels_out=ch_out)  #, deconvolution_channels=3)
 
         os.system('cat '+logger_obj.log_dir+'/wscleanB-'+str(p)+'.log | grep "background noise"')
@@ -246,6 +253,39 @@ for cmaj in range(maxIter):
             d.set_model(model_root, typ='init', apply_region=True)
 
             directions.append(d)
+        # take care of manually provided region to include in cal
+        if manual_dd_cal != '':
+            logger.warning('Using manually provided DS9 region for custom dd-calibrator (experimental). We assume this '
+                           'calibrator is brighter than all other sources in the FoV.')
+            man_cal = regions.read_ds9(manual_dd_cal)
+            # get wcs for include
+            with fits.open('ddcal/init/wideM-1-MFS-image.fits') as f:
+                header, _ = lib_img.flatten(f)
+                wcs = WCS(header)
+            assert len(man_cal) == 1
+            for i,d in enumerate(directions): # remove dd-cals that are already in region
+                ra, dec = d.position
+                for this_reg in man_cal:
+                    sc = SkyCoord(ra*u.deg, dec*u.deg, frame='fk5')
+                    if this_reg.contains(sc, wcs):
+                        logger.info(f'{d.name} containted in manual region, remove auto-found direction.')
+                        directions.pop(i)
+            name = f'ddcal-'+manual_dd_cal.split('.')[0]
+            d = lib_dd.Direction(name)
+            d.fluxes = 99999 # get from model eventually, for now M87.
+            d.spidx_coeffs = -0.8
+            d.ref_freq = freq_mid
+            d.localrms = 0.0
+
+            ra, dec = man_cal[0].center.ra.to_value('deg'), man_cal[0].center.dec.to_value('deg')
+            d.set_position([ra, dec], distance_peeloff=detectability_dist, phase_center=phase_center)
+            d.set_size([ra], [dec], [man_cal[0].radius.to_value('deg')], img_beam[0] / 3600)
+            d.set_region(loc='ddcal/c%02i/skymodels' % cmaj)
+            model_root = 'ddcal/c%02i/skymodels/%s-init' % (cmaj, name)
+            for model_file in glob.glob(full_image.root + '*[0-9]-model.fits'):
+                os.system('cp %s %s' % (model_file, model_file.replace(full_image.root, model_root)))
+            d.set_model(model_root, typ='init', apply_region=True)
+            directions.insert(0,d)
 
         # create a concat region for debugging
         os.system('cat ddcal/c%02i/skymodels/ddcal*reg > ddcal/c%02i/skymodels/all-c%02i.reg' % (cmaj,cmaj,cmaj))
@@ -452,7 +492,8 @@ for cmaj in range(maxIter):
             ################################################################
             # Calibrate
             solint_ph = next(iter_ph_solint)
-            d.add_h5parm('ph', 'ddcal/c%02i/solutions/cal-ph-%s.h5' % (cmaj,logstringcal) )
+            d.add_h5parm(iono_soltype, 'ddcal/c%02i/solutions/cal-%s-%s.h5' % (cmaj, iono_soltype, logstringcal))
+
             if doamp:
                 solint_amp1 = next(iter_amp_solint)
                 solch_amp1 = int(round(MSs_dir.getListObj()[0].getNchan() / ch_out))
@@ -470,22 +511,30 @@ for cmaj in range(maxIter):
                     # Smoothing - ms:DATA -> ms:SMOOTHED_DATA
                     MSs_dir.run('BLsmooth.py -r -i DATA -o SMOOTHED_DATA $pathMS',
                         log='$nameMS_smooth-'+logstringcal+'.log', commandType='python')
+                if solve_tec:
+                    # Calibration - ms:SMOOTHED_DATA
+                    logger.info('Iono calibration (TEC, solint: %i)...' % solint_ph)
+                    MSs_dir.run('DP3 '+parset_dir+'/DP3-solTEC.parset msin=$pathMS msin.datacolumn=SMOOTHED_DATA sol.h5parm=$pathMS/cal-tec.h5 \
+                        sol.solint='+str(solint_ph)+' sol.antennaconstraint=[[CS001LBA,CS002LBA,CS003LBA,CS004LBA,CS005LBA,CS006LBA,CS007LBA,CS011LBA,CS013LBA,CS017LBA,CS021LBA,CS024LBA,CS026LBA,CS028LBA,CS030LBA,CS031LBA,CS032LBA,CS101LBA,CS103LBA,CS201LBA,CS301LBA,CS302LBA,CS401LBA,CS501LBA]]',
+                                log='$nameMS_solTEC-'+logstringcal+'.log', commandType='DP3')
+                    lib_util.run_losoto(s, 'tec', [ms+'/cal-tec.h5' for ms in MSs_dir.getListStr()],
+                                        [parset_dir+'/losoto-plot-tec.parset'], plots_dir='ddcal/c%02i/plots/plots-%s' % (cmaj,logstringcal))
+                else:
+                    # Calibration - ms:SMOOTHED_DATA
+                    logger.info('Iono calibration (scalarphase, solint: %i)...' % solint_ph)
+                    MSs_dir.run('DP3 '+parset_dir+'/DP3-solG.parset msin=$pathMS msin.datacolumn=SMOOTHED_DATA sol.h5parm=$pathMS/cal-ph.h5 \
+                        sol.mode=scalarphase sol.solint='+str(solint_ph)+' sol.smoothnessconstraint=5e6 sol.smoothnessreffrequency=54e6 \
+                        sol.antennaconstraint=[[CS001LBA,CS002LBA,CS003LBA,CS004LBA,CS005LBA,CS006LBA,CS007LBA,CS011LBA,CS013LBA,CS017LBA,CS021LBA,CS024LBA,CS026LBA,CS028LBA,CS030LBA,CS031LBA,CS032LBA,CS101LBA,CS103LBA,CS201LBA,CS301LBA,CS302LBA,CS401LBA,CS501LBA]]',
+                                log='$nameMS_solGph-'+logstringcal+'.log', commandType='DP3')
+                    lib_util.run_losoto(s, 'ph', [ms+'/cal-ph.h5' for ms in MSs_dir.getListStr()],
+                                        [parset_dir+'/losoto-plot1.parset'], plots_dir='ddcal/c%02i/plots/plots-%s' % (cmaj,logstringcal))
+                os.system(f'mv cal-{iono_soltype}.h5 {d.get_h5parm(iono_soltype)}')
 
-                # Calibration - ms:SMOOTHED_DATA
-                logger.info('Gain phase calibration (solint: %i)...' % solint_ph)
-                MSs_dir.run('DP3 '+parset_dir+'/DP3-solG.parset msin=$pathMS msin.datacolumn=SMOOTHED_DATA sol.h5parm=$pathMS/cal-ph.h5 \
-                    sol.mode=scalarphase sol.solint='+str(solint_ph)+' sol.smoothnessconstraint=5e6 sol.smoothnessreffrequency=54e6 \
-                    sol.antennaconstraint=[[CS001LBA,CS002LBA,CS003LBA,CS004LBA,CS005LBA,CS006LBA,CS007LBA,CS011LBA,CS013LBA,CS017LBA,CS021LBA,CS024LBA,CS026LBA,CS028LBA,CS030LBA,CS031LBA,CS032LBA,CS101LBA,CS103LBA,CS201LBA,CS301LBA,CS302LBA,CS401LBA,CS501LBA]]',
-                    log='$nameMS_solGph-'+logstringcal+'.log', commandType='DP3')
-                lib_util.run_losoto(s, 'ph', [ms+'/cal-ph.h5' for ms in MSs_dir.getListStr()],
-                    [parset_dir+'/losoto-plot1.parset'], plots_dir='ddcal/c%02i/plots/plots-%s' % (cmaj,logstringcal))
-                os.system('mv cal-ph.h5 %s' % d.get_h5parm('ph'))
-
-                # correct ph - ms:DATA -> ms:CORRECTED_DATA
-                logger.info('Correct ph...')
-                MSs_dir.run('DP3 '+parset_dir+'/DP3-correct.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CORRECTED_DATA \
-                             cor.parmdb='+d.get_h5parm('ph')+' cor.correction=phase000',
-                             log='$nameMS_correct-'+logstringcal+'.log', commandType='DP3')
+                # correct iono - ms:DATA -> ms:CORRECTED_DATA
+                logger.info(f'Correct iono ({iono_soltype})...')
+                MSs_dir.run(f'DP3 {parset_dir}/DP3-correct.parset msin=$pathMS msin.datacolumn=DATA msout.datacolumn=CORRECTED_DATA '
+                            f'cor.parmdb={d.get_h5parm(iono_soltype)} cor.correction={iono_soltab}',
+                            log='$nameMS_correct-'+logstringcal+'.log', commandType='DP3')
 
                 if doamp:
                     logger.info('Gain amp calibration 1 (solint: %i, solch: %i)...' % (solint_amp1, solch_amp1))
@@ -535,7 +584,6 @@ for cmaj in range(maxIter):
             ###########################################################################
             # Imaging
             with w.if_todo('%s-image' % logstringcal):
-
                 logger.info('%s (cdd: %02i): imaging...' % (d.name, cdd))
                 clean('%s' % logstringcal, MSs_dir, res='normal', size=[d.size,d.size])#, imagereg=d.get_region())
             ### DONE
@@ -628,9 +676,9 @@ for cmaj in range(maxIter):
                          log='$nameMS_taql.log', commandType='general')
 
             # Corrput now model - ms:MODEL_DATA -> MODEL_DATA
-            logger.info('Corrupt ph...')
+            logger.info('Corrupt iono...')
             MSs.run('DP3 '+parset_dir+'/DP3-correct.parset msin=$pathMS msin.datacolumn=MODEL_DATA msout.datacolumn=MODEL_DATA \
-                        cor.invert=False cor.parmdb='+d.get_h5parm('ph',-2)+' cor.correction=phase000',
+                        cor.invert=False cor.parmdb='+d.get_h5parm(iono_soltype,-2)+' cor.correction='+iono_soltab,
                         log='$nameMS_corruping'+logstring+'.log', commandType='DP3')
 
             if not d.get_h5parm('amp1',-2) is None:
@@ -696,7 +744,7 @@ for cmaj in range(maxIter):
         for ic, (rms_noise, mm_ratio) in enumerate(zip(d.rms_noise,d.mm_ratio)):
 
             tables_to_print = '['
-            for sol_type in ['ph','fr','amp1','amp2']:
+            for sol_type in [iono_soltype,'fr','amp1','amp2']:
                 if d.get_h5parm(sol_type, pos=ic) is not None:
                     tables_to_print += sol_type+','
             tables_to_print = tables_to_print[:-1] + ']'
@@ -728,27 +776,26 @@ for cmaj in range(maxIter):
     imagename = 'img/wideDD-c%02i' % (cmaj)
 
     # combine the h5parms
-    h5parms = {'ph':[], 'amp1':[], 'amp2':[]}
+    h5parms = {iono_soltype: [], 'amp1': [], 'amp2': []}
     for d in directions:
         # only those who converged
         if d.peel_off:
             continue
         if not d.converged:
             continue
-
-        h5parms['ph'].append(d.get_h5parm('ph',-2))
+        h5parms[iono_soltype].append(d.get_h5parm(iono_soltype, -2))
         if d.get_h5parm('amp1',-2) is not None:
             h5parms['amp1'].append(d.get_h5parm('amp1',-2))
         if d.get_h5parm('amp2',-2) is not None:
             h5parms['amp2'].append(d.get_h5parm('amp2',-2))
 
-        log = '%s: Phase (%s)' % (d.name, d.get_h5parm('ph',-2))
+        log = '%s: Iono (%s) (%s)' % (d.name, iono_soltype, d.get_h5parm(iono_soltype,-2))
         log += ' Amp1 (%s)' % (d.get_h5parm('amp1',-2))
         log += ' Amp2 (%s)' % (d.get_h5parm('amp2',-2))
         logger.info(log)
 
     # it might happens that no directions ended up with amp solutions, restrict to phase only correction
-    correct_for = 'phase000'
+    correct_for = iono_soltab
     if len(h5parms['amp1']) != 0: correct_for += '+amplitude000'
 
     with w.if_todo('c%02i-interpsol' % cmaj):
@@ -767,13 +814,18 @@ for cmaj in range(maxIter):
                     # reset high-res amplitudes in ph-solve
                     #s.add('losoto -v '+h5parmFile+' '+parset_dir+'/losoto-resetamp.parset ', log='h5parm_collector.log', commandType='python' )
                     #s.run()
+                if typ == 'tec':
+                    lib_h5.addpol(h5parmFile, 'tec000') # TODO: Not sure if this is required / works!
+                    #lib_h5.addpol(h5parmFile, 'amplitude000')
+                    s.add('losoto -v '+h5parmFile+' '+parset_dir+'/losoto-reftec.parset ', log='h5parm_collector.log', commandType='python' )
+                    s.run()
                 if typ == 'amp1' or typ == 'amp2':
                     s.add('losoto -v '+h5parmFile+' '+parset_dir+'/losoto-resetph.parset ', log='h5parm_collector.log', commandType='python' )
                     s.run()
     
         lib_util.check_rm(interp_h5parm)
         logger.info('Interpolating solutions...')
-        s.add('H5parm_interpolator.py -o '+interp_h5parm+' '+' '.join(h5parms['ph']+h5parms['amp1']+h5parms['amp2']), log='h5parm_interpolator.log', commandType='python' )
+        s.add('H5parm_interpolator.py -o '+interp_h5parm+' '+' '.join(h5parms[iono_soltype]+h5parms['amp1']+h5parms['amp2']), log='h5parm_interpolator.log', commandType='python' )
         s.run()
     # parameters for DDF widefield clean + predict
     ddf_parms_common = {
