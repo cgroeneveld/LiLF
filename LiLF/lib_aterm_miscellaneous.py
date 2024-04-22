@@ -67,7 +67,7 @@ def make_template_image(image_name, reference_ra_deg, reference_dec_deg,
         nfreqs = 1
         freqs = [150e6]
 
-    hdu = pyfits.PrimaryHDU(np.ones(shape_out, dtype=np.float32)*fill_val)
+    hdu = pyfits.PrimaryHDU(np.ones(shape_out, dtype=float32)*fill_val)
     hdulist = pyfits.HDUList([hdu])
     header = hdulist[0].header
 

@@ -183,7 +183,7 @@ CDELT6  = {dtime:f}'''.format(size=size, centerpix=int(round(size/2)), pixelsize
     # FITS is transposed compared to Numpy.
     # 4 is the "matrix" entry containing Re(XX), Im(XX), Re(YY), Im(YY)
     print (Ntimes, Nfreqs, Nantenna, 4, size, size)
-    data = np.empty((Ntimes, Nfreqs, Nantenna, 4, size, size), dtype=np.float32)
+    data = np.empty((Ntimes, Nfreqs, Nantenna, 4, size, size), dtype=float32)
     
     # Read in h5parm.
     h5 = h5parm.h5parm(h5p)
@@ -240,7 +240,7 @@ CDELT6  = {dtime:f}'''.format(size=size, centerpix=int(round(size/2)), pixelsize
             imXX = imag[..., 0]
             reYY = real[..., -1]
             imYY = imag[..., -1]
-            matrix = np.asarray([reXX, imXX, reYY, imYY], dtype=np.float32)
+            matrix = np.asarray([reXX, imXX, reYY, imYY], dtype=float32)
             matrix = np.transpose(matrix, (1, 2, 3, 0, 4))
             data[:, :, istation, :, Y, X] = matrix[:, :, idx, :, diridx]
             del matrix

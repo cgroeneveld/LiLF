@@ -91,7 +91,7 @@ if len(MSs.getListStr()) == 0:
 ######################################
 with pt.table(MSs.getListStr()[0]+'/OBSERVATION', readonly=True, ack=False) as obs:
     t = Time(obs.getcell('TIME_RANGE',0)[0]/(24*3600.), format='mjd')
-    time = np.int(t.iso.replace('-','')[0:8])
+    time = int(t.iso.replace('-','')[0:8])
 
 if fix_table:
     with w.if_todo('fix_table'):
