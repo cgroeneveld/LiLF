@@ -70,7 +70,7 @@ def setupiofiles(inms, outms, incolumn, outcolumn):
 def mslin2circ(incol, outcol, outms, skipmetadata):
   tc = pt.table(outms, readonly=False, ack=False)
   dataXY = tc.getcol(incol)
-  I=numpy.complex(0.0,1.0)
+  I=complex(0.0,1.0)
   dataRL = 0.5* numpy.transpose(numpy.array([
            +dataXY[:,:,0]-I*dataXY[:,:,1]+I*dataXY[:,:,2]+dataXY[:,:,3],
            +dataXY[:,:,0]+I*dataXY[:,:,1]+I*dataXY[:,:,2]-dataXY[:,:,3],
@@ -93,7 +93,7 @@ def mslin2circ(incol, outcol, outms, skipmetadata):
 def mscirc2lin(incol, outcol, outms, skipmetadata):
   tc = pt.table(outms,readonly=False, ack=False)
   dataRL = tc.getcol(incol)
-  I=numpy.complex(0.0,1.0)
+  I=complex(0.0,1.0)
   dataXY = 0.5* numpy.transpose(numpy.array([
               +dataRL[:,:,0]+dataRL[:,:,1]+dataRL[:,:,2]+dataRL[:,:,3],
            I*(+dataRL[:,:,0]-dataRL[:,:,1]+dataRL[:,:,2]-dataRL[:,:,3]),
