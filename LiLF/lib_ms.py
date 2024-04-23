@@ -37,6 +37,8 @@ class AllMSs(object):
 
         self.mssListObj = []
         for pathMS in sorted(pathsMS):
+            if pathMS[:2] =='./':
+                pathMS = pathMS[2:]
             ms = MS(pathMS)
             if check_flags and ms.isAllFlagged(): 
                 logger.warning('Skip fully flagged ms: %s' % pathMS)
