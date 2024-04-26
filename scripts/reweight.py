@@ -393,7 +393,7 @@ def plot(MSh, antennas):
 
         imagename = ant_name+'.png'
         logging.info('Save file: %s' % (imagename))
-        fig.savefig(imagename, bbox_inches='tight', additional_artists=leg, dpi=250)
+        fig.savefig(imagename, bbox_inches='tight', dpi=250)
         fig.clf()
 
 def readArguments():
