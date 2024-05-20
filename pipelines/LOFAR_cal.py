@@ -48,6 +48,10 @@ with w.if_todo('copy'):
 
 MSs = lib_ms.AllMSs( glob.glob('*MS'), s, check_flags = False )
 calname = MSs.getListObj()[0].getNameField()
+if calname == '3C196':
+    skymodel = os.path.dirname(__file__) + '/../models/3C196-pandey.skymodel'
+elif calname == '3C380':
+    skymodel = os.path.dirname(__file__) + '/../models/3C380_8h_SH.skymodel'
 for MS in MSs.getListObj():
     os.system('cp -r %s %s' % (skymodel, MS.pathMS))
 
