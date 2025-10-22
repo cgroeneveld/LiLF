@@ -14,3 +14,7 @@ Indices and tables
 * :ref:`modindex`
 * :ref:`search`
 
+
+Code 
+------------------------
+.. automodule::LiLF.lib_util
