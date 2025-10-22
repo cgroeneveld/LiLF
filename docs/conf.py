@@ -21,7 +21,7 @@ version = '1.0'                 # Short version number [web:2]
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = []                 # List of Sphinx extensions to enable (add 'sphinx.ext.autodoc' if needed) [web:2]
+extensions = [sphinx.ext.autodoc]                 # List of Sphinx extensions to enable (add 'sphinx.ext.autodoc' if needed) [web:2]
 
 templates_path = ['_templates'] # Path to custom templates relative to this file [web:2]
 exclude_patterns = []           # Patterns to exclude from source files [web:2]
