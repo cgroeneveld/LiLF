@@ -38,9 +38,10 @@ html_static_path = ['_static']  # Path to static files [web:2]
 # Theme options are theme-specific and customize the look and feel of a theme.
 html_theme_options = {}         # Additional theme options [web:2]
 
+
 autodoc2_packages = [
     {
-        "path": os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'LiLF')),  # Path to LiLF/ dir
-        "auto_mode": True,  # Automatically document all modules
+        "path": "../LiLF",  # Relative from docs/ to root/LiLF/ – no abspath needed [web:62]
+        "auto_mode": True,  # Scans all .py files like lib_util.py
     }
 ]
