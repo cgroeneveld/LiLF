@@ -21,6 +21,6 @@ Indices and tables
 
 Code 
 
-.. autodoc2-module:: lib_util
+.. autodoc2-module:: LiLF.lib_util
    :members:
    :undoc-members:
