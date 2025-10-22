@@ -22,7 +22,7 @@ version = '1.0'                 # Short version number [web:2]
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
 extensions = ['autodoc2']                 # List of Sphinx extensions to enable (add 'sphinx.ext.autodoc' if needed) [web:2]
-autodoc_mock_imports = ['casacore']
+
 
 templates_path = ['_templates'] # Path to custom templates relative to this file [web:2]
 exclude_patterns = []           # Patterns to exclude from source files [web:2]
@@ -38,3 +38,9 @@ html_static_path = ['_static']  # Path to static files [web:2]
 # Theme options are theme-specific and customize the look and feel of a theme.
 html_theme_options = {}         # Additional theme options [web:2]
 
+autodoc2_packages = [
+    {
+        "path": os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'LiLF')),  # Path to LiLF/ dir
+        "auto_mode": True,  # Automatically document all modules
+    }
+]
