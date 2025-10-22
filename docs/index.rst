@@ -21,8 +21,6 @@ Indices and tables
 
 Code 
 
-.. automodule:: LiLF.lib_util
+.. autodoc2-module:: lib_util
    :members:
    :undoc-members:
-   :show-inheritance:
-   :inherited-members:
