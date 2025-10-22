@@ -21,7 +21,7 @@ version = '1.0'                 # Short version number [web:2]
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
 
-extensions = ['sphinx.ext.autodoc']                 # List of Sphinx extensions to enable (add 'sphinx.ext.autodoc' if needed) [web:2]
+extensions = ['autodoc2']                 # List of Sphinx extensions to enable (add 'sphinx.ext.autodoc' if needed) [web:2]
 autodoc_mock_imports = ['casacore']
 
 templates_path = ['_templates'] # Path to custom templates relative to this file [web:2]
