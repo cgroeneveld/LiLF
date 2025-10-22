@@ -1,1 +1,1 @@
-sphinx-autodoc2
+sphinx-autodoc2==0.8.0
