@@ -3,10 +3,7 @@ LiLF Documentation
 
 .. toctree::
    :maxdepth: 2
-   Introduction
-   Running the Pipeline
-   Calibration strategy
-
+   setup
    modules  # Add subpages here as needed, e.g., for API docs
 
 .. autodoc2-module:: LiLF.lib_util
@@ -21,14 +18,14 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-* :doc:`Setting up LiLF`<setup>
-* :doc:`Running the pipeline`<pipeline>
-* :doc:`Calibration strategies`<strategies>
-* :doc:`Challenging data`<challenging>
+* :doc:`Setting up LiLF<setup>`
+* :doc:`Running the pipeline <pipeline>`
+* :doc:`Calibration strategies<strategies>`
+* :doc:`Challenging data<challenging>`
 
 
 
 
-Welcome to the 
+Welcome to the documentation of the **Library of Low Frequencies (LiLF)**
 
 
