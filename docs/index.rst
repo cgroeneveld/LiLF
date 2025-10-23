@@ -10,6 +10,9 @@ LiLF Documentation
    :members:
    :undoc-members:
 
+.. autodoc2-module:: pipelines.LOFAR_cal
+   :members:
+   :undoc-members:
 
 Indices and tables
 ==================
