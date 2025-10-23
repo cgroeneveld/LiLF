@@ -2,11 +2,12 @@ LiLF Documentation
 ======================================================
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
    setup
    pipeline
    strategies # Add subpages here as needed, e.g., for API docs
+   modules
 
 .. autodoc2-module:: LiLF.lib_util
    :members:
