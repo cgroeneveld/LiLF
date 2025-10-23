@@ -12,6 +12,7 @@ Note that the FLoCS containers are generally built for a specific architecture, 
 1b. Requirements (not recommended)
 -----------------------------
 Alternatively, if you enjoy debugging libraries yourself (you have been warned), you can install the requirements yourself. Note that deviating from these requirements may cause unpredictable results. Below we specify the software required for LiLF, along with the latest tested, compatible version:
+
 * DP3
 * WSclean
 * casacore
