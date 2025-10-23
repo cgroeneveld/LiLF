@@ -43,5 +43,8 @@ autodoc2_packages = [
     {
         "path": "../LiLF",  # Relative from docs/ to root/LiLF/ – no abspath needed [web:62]
         "auto_mode": True,  # Scans all .py files like lib_util.py
+    },{
+        "path": "../pipelines",
+        "auto_mode": True,
     }
 ]
