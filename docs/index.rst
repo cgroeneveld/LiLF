@@ -21,10 +21,11 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-* :ref:`Setting up LiLF`
-* :ref:`Running the pipeline`
-* :ref:`Calibration strategies`
-* :ref:`Challenging data`
+* :doc:`Setting up LiLF`<setup>
+* :doc:`Running the pipeline`<pipeline>
+* :doc:`Calibration strategies`<strategies>
+* :doc:`Challenging data`<challenging>
+
 
 
 
