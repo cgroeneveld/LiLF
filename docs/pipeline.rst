@@ -28,6 +28,6 @@ Example:
   python /path/to/LiLF/pipelines/LOFAR_preprocess.py html.txt
 
 
-:doc: `LOFAR_cal <desc/cal>`
+:doc:`LOFAR_cal <desc/cal>`
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 LOFAR_cal takes the out put of LOFAR_preprocess.py for a calibrator source and extracts the systematic effects from this source.
