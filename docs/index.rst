@@ -3,8 +3,10 @@ LiLF Documentation
 
 .. toctree::
    :maxdepth: 2
+
    setup
-   modules  # Add subpages here as needed, e.g., for API docs
+   pipeline
+   strategies # Add subpages here as needed, e.g., for API docs
 
 .. autodoc2-module:: LiLF.lib_util
    :members:
