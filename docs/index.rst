@@ -9,6 +9,10 @@ LiLF Documentation
 
    modules  # Add subpages here as needed, e.g., for API docs
 
+.. autodoc2-module:: LiLF.lib_util
+   :members:
+   :undoc-members:
+
 
 Indices and tables
 ==================
@@ -17,10 +21,13 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+* :ref:`Setting up LiLF`
+* :ref:`Running the pipeline`
+* :ref:`Calibration strategies`
+* :ref:`Challenging data`
 
 
-Code 
 
-.. autodoc2-module:: LiLF.lib_util
-   :members:
-   :undoc-members:
+Welcome to the 
+
+
