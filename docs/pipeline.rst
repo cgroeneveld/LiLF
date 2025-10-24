@@ -40,6 +40,10 @@ LOFAR_cal takes the out put of LOFAR_preprocess.py for a calibrator source and e
 This code should be stable for almost all ionospheric conditions with regular LBA, and for decameter observations it should still work acceptably well for most observations.
 It is important, however, to verify the quality of the data after running the calibrator pipeline. For examples on the data quality, see the :doc:`calibrator examples <desc/cal_examp>` page.
 
-For LOFAR_cal to successfully run, you need to copy/move the data from the :code:mss/idXXXX_NAME folder to a separate :code:data-bkp folder. 
+For LOFAR_cal to successfully run, you need to copy/move the data from the ``mss/idXXXX_NAME`` folder to a separate ``data-bkp`` folder. 
 Once you have done that, you can run LOFAR_cal.py in the parent folder.
 LOFAR_cal.py will generate h5-files containing the calibrator solutions, which are needed in the subsequent step.
+
+
+:doc:`LOFAR_timesplit <desc/timesplit>`
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
