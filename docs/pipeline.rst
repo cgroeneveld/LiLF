@@ -32,7 +32,7 @@ Example:
 
   python /path/to/LiLF/pipelines/LOFAR_preprocess.py html.txt
 
-
+.. _lofar_cal:
 :doc:`LOFAR_cal <desc/cal>`
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
@@ -48,5 +48,5 @@ LOFAR_cal.py will generate h5-files containing the calibrator solutions, which a
 :doc:`LOFAR_timesplit <desc/timesplit>`
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-The LOFAR_timesplit does two main things: it applies the correction obtained from the :ref:`LOFAR_cal<LOFR_cal>` step on the target and it splits the target data into 1hr chunks.
+The LOFAR_timesplit does two main things: it applies the correction obtained from the :ref:`LOFAR_cal` step on the target and it splits the target data into 1hr chunks.
 
