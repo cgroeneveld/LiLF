@@ -37,4 +37,5 @@ Example:
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 LOFAR_cal takes the out put of LOFAR_preprocess.py for a calibrator source and extracts the systematic effects from this source. 
-This code should be stable for the 
+This code should be stable for almost all ionospheric conditions with regular LBA, and for decameter observations it should still work acceptably well for most observations.
+It is important, however, to verify the quality of the data after running the calibrator pipeline. For examples on the data quality, see the :doc:`calibrator examples <desc/cal_examp>` page.
