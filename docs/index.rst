@@ -28,6 +28,7 @@ Indices and tables
 * :doc:`Running the pipeline <pipeline>`
 * :doc:`Calibration strategies<strategies>`
 * :doc:`Challenging data<challenging>`
+* :doc:`LiLF parset<parset>`
 
 
 
