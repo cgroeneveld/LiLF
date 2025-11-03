@@ -18,7 +18,7 @@ Each observations should contain both the target pointing, as well as a calibrat
 
 LOFAR_preprocess is the pipeline used to download data from the LOFAR `Long Term Archive (LTA) <https://lta.lofar.eu/>`_. Downloading data from the LTA requires an account with LOFAR/ASTRON. In order to download data from the LTA, the login credentials should be saved in a plain text file in your home directory (.wgetrc):
 
-.. code-block::
+.. code-block:: bash
 
   user=exampleUsername
   password=1234testPassword1234
@@ -28,7 +28,7 @@ Via the LTA, you can stage the observations (both target and calibrators) that y
 LOFAR_preprocess will then download the data, average it, rename it and rescale the flux density scale. Optionally, this step can also demix sources.
 Example:
 
-.. code-block::
+.. code-block:: bash
 
   python /path/to/LiLF/pipelines/LOFAR_preprocess.py html.txt
 
