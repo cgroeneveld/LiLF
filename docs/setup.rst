@@ -24,17 +24,20 @@ Alternatively, if you enjoy debugging libraries yourself (you have been warned),
 2. Setting up LiLF
 -------------------------
 LiLF is relatively easy to set up. First of all, run
+
 .. code-block::
   ulimit -n 4000
 
 This is important when concatenating downloaded measurement sets.
 
 Next, change to the LiLF root directory, and add the LiLF root directory to your PYTHONPATH variable, e.g. by running
+
 .. code-block::
   cd /path/to/LilF/
   export PYTHONPATH=$PYTHONPATH:$PWD
 
 Also, add the scripts folder to the PATH variable:
+
 .. code-block::
   cd /path/to/LiLF/scripts/
   export PATH=$PATH:$PWD
